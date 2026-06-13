@@ -1,0 +1,13 @@
+media
+db.sqlite3
+migrations/
+*.log
+media/
+staticfiles
+__pycache__/
+.idea/
+.env
+DynamicOCR/.env
+.idea
+.venv/
+*.Ds_Store

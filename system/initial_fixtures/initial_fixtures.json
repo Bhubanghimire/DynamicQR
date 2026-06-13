@@ -1,0 +1,88 @@
+[
+    {
+        "model": "system.ConfigCategory",
+        "pk": 1,
+        "fields": {
+            "name": "user_type",
+            "description": "This is for User type category.",
+            "created_at": "2024-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigCategory",
+        "pk": 2,
+        "fields": {
+            "name": "gender_type",
+            "description": "This is for video call category.",
+            "created_at": "2024-05-03T06:41:11.567Z"
+
+        }
+    },
+
+
+
+
+
+
+    {
+        "model": "system.ConfigChoice",
+        "pk": 1,
+        "fields": {
+            "name": "Admin",
+            "category_id": 1,
+            "image": null,
+            "status": true,
+            "description": "This is center admin of user type category.",
+            "created_at": "2024-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": 2,
+        "fields": {
+            "name": "Normal User",
+            "category_id": 1,
+            "image": null,
+            "status": true,
+            "description": "This is lecturer of user type category",
+            "created_at": "2024-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": 3,
+        "fields": {
+            "name": "Male",
+            "category_id": 2,
+            "image": null,
+            "status": true,
+            "description": "This is for student category.",
+            "created_at": "2024-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": 4,
+        "fields": {
+            "name": "Female",
+            "category_id": 2,
+            "image": null,
+            "status": true,
+            "description": "This is for video call category.",
+            "created_at": "2024-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk":5,
+        "fields": {
+            "name": "Others",
+            "category_id": 2,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2024-05-03T06:41:11.567Z"
+        }
+    }
+
+  ]
