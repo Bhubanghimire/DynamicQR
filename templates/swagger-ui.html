@@ -8,17 +8,140 @@
     <style>
       body {
         margin: 0;
-        background: #f5f7fb;
+        background: linear-gradient(180deg, #f5f7fb 0%, #eef2ff 100%);
+      }
+      .swagger-shell {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        min-height: 100vh;
+      }
+      .auth-panel {
+        padding: 24px;
+        border-right: 1px solid rgba(15, 23, 42, 0.08);
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(10px);
+      }
+      .auth-panel h2 {
+        margin: 0 0 8px;
+        font-size: 20px;
+      }
+      .auth-panel p {
+        margin: 0 0 16px;
+        color: #475569;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .auth-panel label {
+        display: block;
+        margin: 12px 0 6px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .auth-panel input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+        background: #fff;
+      }
+      .auth-panel button {
+        width: 100%;
+        margin-top: 14px;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: #0f172a;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .auth-panel button.secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+      .auth-status {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #334155;
+        word-break: break-word;
       }
       #swagger-ui {
         min-height: 100vh;
+        overflow: auto;
+      }
+      @media (max-width: 960px) {
+        .swagger-shell {
+          grid-template-columns: 1fr;
+        }
+        .auth-panel {
+          border-right: 0;
+          border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        }
       }
     </style>
   </head>
   <body>
-    <div id="swagger-ui"></div>
+    <div class="swagger-shell">
+      <aside class="auth-panel">
+        <h2>API Login</h2>
+        <p>Use your JWT here so Swagger sends authenticated requests to protected endpoints.</p>
+        <label for="swagger-email">Email</label>
+        <input id="swagger-email" type="email" placeholder="user@example.com" />
+        <label for="swagger-password">Password</label>
+        <input id="swagger-password" type="password" placeholder="Password" />
+        <button id="swagger-login">Login and Save Token</button>
+        <button id="swagger-clear" class="secondary" type="button">Clear Token</button>
+        <div id="swagger-status" class="auth-status">No token stored.</div>
+      </aside>
+      <div id="swagger-ui"></div>
+    </div>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
+      const tokenKey = "dynamicocr_access_token";
+      const statusEl = document.getElementById("swagger-status");
+      const updateStatus = () => {
+        const token = localStorage.getItem(tokenKey);
+        statusEl.textContent = token ? "Token saved. Swagger will send Authorization: Bearer <token>." : "No token stored.";
+      };
+      const storeToken = (token) => {
+        localStorage.setItem(tokenKey, token);
+        updateStatus();
+      };
+      const clearToken = () => {
+        localStorage.removeItem(tokenKey);
+        updateStatus();
+      };
+      document.getElementById("swagger-clear").addEventListener("click", clearToken);
+      document.getElementById("swagger-login").addEventListener("click", async () => {
+        const email = document.getElementById("swagger-email").value.trim();
+        const password = document.getElementById("swagger-password").value;
+        statusEl.textContent = "Logging in...";
+        try {
+          const response = await fetch("/api/v1.1/user/accounts/auth/login/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            statusEl.textContent = payload.detail || payload.message || "Login failed.";
+            return;
+          }
+          const token = payload?.data?.access_token;
+          if (!token) {
+            statusEl.textContent = "Login succeeded but no access token was returned.";
+            return;
+          }
+          storeToken(token);
+          statusEl.textContent = "Logged in and token saved.";
+        } catch (error) {
+          statusEl.textContent = "Login request failed.";
+        }
+      });
       window.ui = SwaggerUIBundle({
         url: "{{ schema_url }}",
         dom_id: "#swagger-ui",
@@ -26,7 +149,15 @@
         displayRequestDuration: true,
         presets: [SwaggerUIBundle.presets.apis],
         layout: "BaseLayout",
+        requestInterceptor: (request) => {
+          const token = localStorage.getItem(tokenKey);
+          if (token) {
+            request.headers.Authorization = `Bearer ${token}`;
+          }
+          return request;
+        },
       });
+      updateStatus();
     </script>
   </body>
 </html>

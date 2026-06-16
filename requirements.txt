@@ -3,5 +3,6 @@ Pillow==11.3.0
 PyJWT
 
 djangorestframework
+inflection
 fcm_django==2.3.1
 uritemplate-4.2.0
