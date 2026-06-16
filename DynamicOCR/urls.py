@@ -3,6 +3,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework.renderers import JSONOpenAPIRenderer
+from rest_framework.permissions import AllowAny
 from rest_framework.schemas import get_schema_view
 from django.views.generic import TemplateView
 
@@ -11,6 +12,8 @@ schema_view = get_schema_view(
     description="OpenAPI schema for the DynamicOCR backend.",
     version="1.1",
     public=True,
+    permission_classes=[AllowAny],
+    authentication_classes=[],
     renderer_classes=[JSONOpenAPIRenderer],
 )
 

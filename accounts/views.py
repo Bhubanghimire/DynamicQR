@@ -1,45 +1,23 @@
-import json
-import os
-from datetime import datetime, timedelta
-
-from django.db.models import Q
-from fcm_django.models import FCMDevice
-
+import jwt
+from django.conf import settings
 from django.contrib.auth.hashers import check_password
 from django.core.mail import EmailMultiAlternatives
 from django.http import JsonResponse
-from django.utils.html import strip_tags
-from django.views.generic.base import TemplateView
-from rest_framework.response import Response
-import jwt
-from rest_framework.response import Response
-from rest_framework import serializers, viewsets, status
-from rest_framework.schemas.openapi import AutoSchema
-
-from django.contrib.auth import authenticate
-from rest_framework.status import (
-    HTTP_200_OK,
-    HTTP_401_UNAUTHORIZED,
-    HTTP_400_BAD_REQUEST
-)
-from rest_framework import exceptions
-#
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from rest_framework.decorators import action
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
-from django.contrib.auth import get_user_model
-from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
-# from accounts.models import OTP, Advertise, About, Conversation, Message
-# from accounts.serializers import UserSerializers, AdvertiseSerializer, UserUpdateSerializer, FCMDeviceSerializer, \
-#     UserDetailSerializers, MessageSerializer
+from rest_framework import exceptions, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.schemas.openapi import AutoSchema
+from rest_framework import status
+from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST
 
-# from accounts.models import OTP
-# from .serializers import UserSerializers
-#
-User = get_user_model()
+from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
+from accounts.models import OTP, User
+from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
+    ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
+    MessageResponseSerializer, ChangePasswordResponseSerializer
 
 
 class AccountsAuthSchema(AutoSchema):
@@ -49,11 +27,48 @@ class AccountsAuthSchema(AutoSchema):
     def get_operation_id(self, path, method):
         return f"accounts_{self.view.action}"
 
+    def get_request_serializer(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action == "login":
+            return LoginSerializer()
+        if action == "refresh":
+            return RefreshSerializer()
+        if action == "otp_send":
+            return SendOtpSerializer()
+        if action == "register":
+            return RegisterSerializer()
+        if action == "forget_password":
+            return ForgetPasswordSerializer()
+        if action == "otp_verify":
+            return OtpVerifySerializer()
+        if action == "change_password":
+            return ChangePasswordSerializer()
+        return super().get_request_serializer(path, method)
+
+    def get_request_body(self, path, method):
+        return super().get_request_body(path, method)
+
+    def get_response_serializer(self, path, method):
+        action = getattr(self.view, "action", None)
+        if method.upper() != "POST":
+            return super().get_response_serializer(path, method)
+
+        if action in {"login", "refresh", "register"}:
+            return TokenResponseSerializer()
+        if action in {"otp_send", "otp_verify", "forget_password"}:
+            return MessageResponseSerializer()
+        if action == "change_password":
+            return ChangePasswordResponseSerializer()
+        return super().get_response_serializer(path, method)
+
+    def get_responses(self, path, method):
+        return super().get_responses(path, method)
+
 
 class AuthViewSet(viewsets.ViewSet):
     schema = AccountsAuthSchema()
     permission_classes_by_action = {
-        'refresh': [IsAuthenticated],
+        'refresh': [AllowAny],
         'login': [AllowAny],
         'signup_otp': [AllowAny],
         'register': [AllowAny],
@@ -67,7 +82,9 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='refresh')
     def refresh(self, request):
-        token = request.POST.get('refresh_token')
+        serializer = RefreshSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data['refresh_token']
         if token is None:
             return Response({"message": "please send refresh token in payload"}, status=HTTP_400_BAD_REQUEST)
 
@@ -98,16 +115,10 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='login')
     def login(self, request):
-        password = request.data.get('password', False)
-        email = request.data.get('email', False)
-        print(email, password)
-
-        if not (email or password):
-            raise serializers.ValidationError(
-                {"message": "Enter Email and password"}
-            )
-
-        # user = authenticate(request, email=email, password=password)
+        serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
         user = User.objects.filter(email=email).first()
         if user is None:
             raise serializers.ValidationError(
@@ -115,7 +126,10 @@ class AuthViewSet(viewsets.ViewSet):
             )
 
         is_correct = check_password(password, user.password)
-        print(user, is_correct)
+        if not is_correct:
+            raise serializers.ValidationError(
+                {"message": "A user with this email and password was not found."}
+            )
 
 
         access_token = generate_access_token(user)
@@ -132,28 +146,28 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='send-otp')
     def otp_send(self, request):
-        data = request.data
-        email = data['email']
+        serializer = SendOtpSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
         generated_otp = generate_otp()
         check_status = OTP.objects.filter(email=email)
-        about = About.objects.first()
         if check_status.exists():
             check_status.update(otp=generated_otp)
         else:
-            obj = OTP.objects.create(email=email, otp=generated_otp)
-        context = {'title': 'Otp',
-                   'content': generated_otp,
-                   'location': about.address if about else "Australia",
-                   'phone': about.phone if about else "1234567890",
-                   "logo": about.logo.url if about else ""
-
-                   }
+            OTP.objects.create(email=email, otp=generated_otp)
+        context = {
+            'title': 'Otp',
+            'content': generated_otp,
+            'location': 'Australia',
+            'phone': '1234567890',
+            'logo': ''
+        }
         html_content = render_to_string("email_template.html", context=context)
         text_content = strip_tags(html_content)
-        email = EmailMultiAlternatives('Otp for email verification', text_content, settings.DEFAULT_FROM_EMAIL, [email])
-        email.attach_alternative(html_content, 'text/html')
+        message = EmailMultiAlternatives('Otp for email verification', text_content, settings.DEFAULT_FROM_EMAIL, [email])
+        message.attach_alternative(html_content, 'text/html')
         try:
-            email.send()
+            message.send()
         except Exception as e:
             print(e)
             return Response({"message": "Email not sending. Try again."}, status=HTTP_400_BAD_REQUEST)
@@ -162,23 +176,25 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='register')
     def register(self, request):
-        data = request.data
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         try:
             check_otp = OTP.objects.get(email=data['email'], otp=data['otp'])
         except OTP.DoesNotExist:
             return Response({'message': 'OTP not found'}, status=HTTP_400_BAD_REQUEST)
 
-        # if User.objects.filter(email=data['email']).exists():
-        #     return Response({'message': 'User already exists'}, status=HTTP_400_BAD_REQUEST)
-
-        user_serializer = UserSerializers(data=data)
-        user_serializer.is_valid(raise_exception=True)
-        user_serializer.save()
+        user = User.objects.create_user(
+            email=data['email'],
+            password=data['password'],
+            first_name=data['first_name'],
+            last_name=data['last_name'],
+            phone=data['phone'],
+            birth_date=data.get('birth_date'),
+            gender_id=data.get('gender'),
+            user_type_id=data.get('user_type') or 2,
+        )
         check_otp.delete()
-        user = User.objects.get(id=user_serializer.data["id"])
-        # user.set_password(data['password'])
-        user.user_type_id = 2
-        user.save()
         access_token = generate_access_token(user)
         refresh_token = generate_refresh_token(user)
 
@@ -193,7 +209,9 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='forget-password')
     def forget_password(self, request):
-        data = request.data
+        serializer = ForgetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         check_otp = OTP.objects.filter(email=data['email'], otp=data['otp'])
         if check_otp.exists():
             try:
@@ -209,7 +227,9 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='otp-verify')
     def otp_verify(self, request):
-        data = request.data
+        serializer = OtpVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         check_otp = OTP.objects.filter(email=data['email'], otp=data['otp'])
         if check_otp.exists():
             return JsonResponse({'message': 'OTP  matched'}, status=status.HTTP_200_OK)
@@ -218,11 +238,10 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['POST'], url_path='password-change')
     def change_password(self, request, *args, **kwargs):
         user = self.request.user
-        old_pw = request.data.get('old_password', False)
-        new_pw = request.data.get('new_password')
-
-        if (old_pw or new_pw) is None:
-            return Response({'data': {}, 'message': 'Please provide old and new password!'}, status=400)
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        old_pw = serializer.validated_data['old_password']
+        new_pw = serializer.validated_data['new_password']
 
         if check_password(old_pw, user.password):
             user.set_password(new_pw)
