@@ -179,10 +179,10 @@ class AuthViewSet(viewsets.ViewSet):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        try:
-            check_otp = OTP.objects.get(email=data['email'], otp=data['otp'])
-        except OTP.DoesNotExist:
-            return Response({'message': 'OTP not found'}, status=HTTP_400_BAD_REQUEST)
+        # try:
+        #     check_otp = OTP.objects.get(email=data['email'], otp=data['otp'])
+        # except OTP.DoesNotExist:
+        #     return Response({'message': 'OTP not found'}, status=HTTP_400_BAD_REQUEST)
 
         user = User.objects.create_user(
             email=data['email'],
@@ -191,10 +191,10 @@ class AuthViewSet(viewsets.ViewSet):
             last_name=data['last_name'],
             phone=data['phone'],
             birth_date=data.get('birth_date'),
-            gender_id=data.get('gender'),
-            user_type_id=data.get('user_type') or 2,
+            gender=data.get('gender'),
+            user_type=data.get('user_type') or 1,
         )
-        check_otp.delete()
+        # check_otp.delete()
         access_token = generate_access_token(user)
         refresh_token = generate_refresh_token(user)
 

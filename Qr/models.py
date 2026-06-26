@@ -1,5 +1,7 @@
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from pytz import timezone
+#from pytz import timezone
 
 from accounts.views import User
 from system.models import ConfigChoice, SoftDeletable
@@ -20,8 +22,8 @@ class QRCode(SoftDeletable):
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True)
     user_id = models.ForeignKey(User, on_delete=models.RESTRICT)
     name = models.CharField(max_length=200)
-    qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
-    status = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
+    qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_type')
+    status = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_status')
 
 
 class QRCodeData(SoftDeletable):
@@ -65,11 +67,10 @@ class QRDesign(SoftDeletable):
 
 class invitations(SoftDeletable):
     email = models.EmailField()
-    resource_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     resource_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'resource_id')
-
-    role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
+    role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='role')
     token = models.CharField(max_length=100, unique=True)
     invited_by = models.ForeignKey(User, on_delete=models.RESTRICT, related_name='invitations_sent')
     status = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
@@ -80,7 +81,7 @@ class invitations(SoftDeletable):
 
 class SharePermissions(SoftDeletable):
     user_id = models.ForeignKey(User, on_delete=models.RESTRICT)
-    resource_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     resource_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'resource_id')
     role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
