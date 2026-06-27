@@ -7,15 +7,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.schemas import get_schema_view
 from django.views.generic import TemplateView
 
-schema_view = get_schema_view(
-    title="DynamicOCR API",
-    description="OpenAPI schema for the DynamicOCR backend.",
-    version="1.1",
-    public=True,
-    permission_classes=[AllowAny],
-    authentication_classes=[],
-    renderer_classes=[JSONOpenAPIRenderer],
-)
+schema_view = get_schema_view(title="DynamicOCR API", description="OpenAPI schema for the DynamicOCR backend.",
+                              version="1.1", public=True, permission_classes=[AllowAny], authentication_classes=[],
+                              renderer_classes=[JSONOpenAPIRenderer], )
 
 swagger_view = TemplateView.as_view(
     template_name="swagger-ui.html",
