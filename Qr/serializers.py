@@ -42,3 +42,7 @@ class ProjectDetailSerializer(ProjectSerializer):
     def get_qrcodes(self, obj):
         qrcodes = QRCode.objects.filter(project=obj)
         return QRCodeSerializer(qrcodes, many=True).data
+
+
+class ProjectQRActionSerializer(serializers.Serializer):
+    qr_id = serializers.IntegerField(help_text="ID of the QR code to add to or remove from the project.")

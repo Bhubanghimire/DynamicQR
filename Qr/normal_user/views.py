@@ -4,8 +4,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.schemas.openapi import AutoSchema
 from rest_framework.response import Response
 from rest_framework import status
-from Qr.models import Project
-from Qr.serializers import ProjectSerializer, ProjectDetailSerializer
+from Qr.models import Project, QRCode
+from Qr.serializers import ProjectSerializer, ProjectDetailSerializer, ProjectQRActionSerializer
 
 
 class ProjectSchema(AutoSchema):
@@ -14,6 +14,34 @@ class ProjectSchema(AutoSchema):
 
     def get_operation_id(self, path, method):
         return f"projects_{self.view.action}"
+
+    def get_description(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action == "add_qr":
+            return "Attach a QR code to the project. URL path parameter `pk` is the project id and request body field `qr_id` is the QR code id."
+        if action == "remove_qr":
+            return "Detach a QR code from the project. URL path parameter `pk` is the project id and request body field `qr_id` is the QR code id."
+        return super().get_description(path, method)
+
+    def get_request_serializer(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action in {"add_qr", "remove_qr"}:
+            return ProjectQRActionSerializer()
+        return super().get_request_serializer(path, method)
+
+    def get_request_body(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action == "remove_qr":
+            self.request_media_types = self.map_parsers(path, "POST")
+            serializer = self.get_request_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, ProjectQRActionSerializer) else {}
+            return {
+                "content": {
+                    ct: {"schema": item_schema}
+                    for ct in self.request_media_types
+                }
+            }
+        return super().get_request_body(path, method)
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -60,3 +88,61 @@ class ProjectViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response({"data": {}, "message": "Project deleted successfully."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="add-qr")
+    def add_qr(self, request, *args, **kwargs):
+        project = self.get_object()
+        qr_id = request.data.get("qr_id") or request.query_params.get("qr_id")
+
+        if not qr_id:
+            return Response(
+                {"data": {}, "message": "qr_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            qr = QRCode.objects.get(id=qr_id)
+        except QRCode.DoesNotExist:
+            return Response(
+                {"data": {}, "message": "QR code not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        qr.project = project
+        qr.save(update_fields=["project"])
+        return Response(
+            {
+                "data": {"project_id": project.id, "qr_id": qr.id},
+                "message": "QR code added to project successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["delete"], url_path="remove-qr")
+    def remove_qr(self, request, *args, **kwargs):
+        project = self.get_object()
+        qr_id = request.data.get("qr_id") or request.query_params.get("qr_id")
+
+        if not qr_id:
+            return Response(
+                {"data": {}, "message": "qr_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            qr = QRCode.objects.get(id=qr_id, project=project)
+        except QRCode.DoesNotExist:
+            return Response(
+                {"data": {}, "message": "QR code not found in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        qr.project = None
+        qr.save(update_fields=["project"])
+        return Response(
+            {
+                "data": {"project_id": project.id, "qr_id": qr.id},
+                "message": "QR code removed from project successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
