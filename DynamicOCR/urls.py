@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import HttpResponse
 from django.urls import include, path
 from rest_framework.renderers import JSONOpenAPIRenderer
 from rest_framework.permissions import AllowAny
@@ -18,9 +19,13 @@ swagger_view = TemplateView.as_view(
         "page_title": "DynamicOCR Swagger",
     },
 )
+def home(request):
+    return HttpResponse("DynamicOCR API is running.")
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("", home),
+
     # path("api/v1.1/admin/", include(("DynamicOCR.api.admin_urls", "api_admin"), namespace="api_admin")),
     path("api/v1.1/user/", include(("DynamicOCR.api.user_urls", "api_user"), namespace="api_user")),
     path("api/schema/", schema_view, name="api-schema"),
