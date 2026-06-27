@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.schemas.openapi import AutoSchema
 from rest_framework.response import Response
 from rest_framework import status
+from accounts.authentication import JWTAuthentication
 from Qr.models import Project, QRCode
 from Qr.serializers import ProjectSerializer, ProjectDetailSerializer, ProjectQRActionSerializer
 
@@ -46,6 +47,7 @@ class ProjectSchema(AutoSchema):
 
 class ProjectViewSet(viewsets.ModelViewSet):
     schema = ProjectSchema()
+    authentication_classes = [JWTAuthentication]
     model = Project
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectSerializer
