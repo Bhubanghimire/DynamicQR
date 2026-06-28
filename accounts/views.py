@@ -72,6 +72,10 @@ class AuthViewSet(viewsets.ViewSet):
         'login': [AllowAny],
         'signup_otp': [AllowAny],
         'register': [AllowAny],
+        'otp_send': [AllowAny],
+        'forget_password': [AllowAny],
+        'otp_verify': [AllowAny],
+        'change_password': [IsAuthenticated],
     }
 
     def get_permissions(self):
