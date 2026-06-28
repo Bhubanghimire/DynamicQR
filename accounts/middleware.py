@@ -33,5 +33,5 @@ def generate_refresh_token(user):
 
 def generate_otp():
     first_digit = random.choice('123456789')          # avoids '0'
-    remaining_digits = ''.join(random.choices(string.digits, k=4))  # allows '0'
+    remaining_digits = ''.join(random.choices(string.digits, k=5))  # allows '0'
     return first_digit + remaining_digits
