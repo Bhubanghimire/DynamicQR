@@ -196,7 +196,7 @@ class AuthViewSet(viewsets.ViewSet):
             phone=data.get('phone', ''),
             birth_date=data.get('birth_date'),
             gender=data.get('gender'),
-            user_type=data.get('user_type') or 1,
+            user_type_id=data.get('user_type').pk if data.get('user_type') else 1,
         )
         check_otp.delete()
         access_token = generate_access_token(user)
