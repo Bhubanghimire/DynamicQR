@@ -7,6 +7,7 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.schemas.openapi import AutoSchema
@@ -17,7 +18,8 @@ from accounts.middleware import generate_access_token, generate_refresh_token, g
 from accounts.models import OTP, User
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
-    MessageResponseSerializer, ChangePasswordResponseSerializer
+    MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
+    ProfileImageUpdateSerializer
 
 
 class AccountsAuthSchema(AutoSchema):
@@ -253,3 +255,52 @@ class AuthViewSet(viewsets.ViewSet):
             return Response({'data': {}, 'message': 'Password changed successfully!'}, status=200)
         else:
             return Response({'data': {}, 'message': 'The Old Password does not match!'}, status=400)
+
+
+class ProfileViewset(viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProfileDetailSerializer
+
+    def get_object(self):
+        return self.request.user
+
+    def get_serializer_class(self):
+        if self.action == "update_profile":
+            return ProfileUpdateSerializer
+        if self.action == "update_profile_image":
+            return ProfileImageUpdateSerializer
+        return ProfileDetailSerializer
+
+    @action(detail=False, methods=["GET"], url_path="detail")
+    def profile_detail(self, request):
+        serializer = self.get_serializer(self.get_object(), context={"request": request})
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["PATCH"], url_path="update")
+    def update_profile(self, request):
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        response_serializer = ProfileDetailSerializer(serializer.instance, context={"request": request})
+        return Response(
+            {"data": response_serializer.data, "message": "Profile updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["PATCH"],
+        url_path="profile-image",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def update_profile_image(self, request):
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        response_serializer = ProfileDetailSerializer(serializer.instance, context={"request": request})
+        return Response(
+            {"data": response_serializer.data, "message": "Profile image updated successfully."},
+            status=status.HTTP_200_OK,
+        )
