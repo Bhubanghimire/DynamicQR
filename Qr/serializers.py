@@ -70,6 +70,25 @@ class QRDesignSerializer(serializers.ModelSerializer):
         return representation
 
 
+class QRCodeSummarySerializer(serializers.ModelSerializer):
+    type = serializers.CharField(source="qr_type.name", read_only=True)
+    status = serializers.CharField(source="status.name", read_only=True)
+    domain_name = serializers.SerializerMethodField()
+    design = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QRCode
+        fields = ["id", "name", "type", "created_at", "status", "domain_name", "design"]
+
+    def get_domain_name(self, obj):
+        scan_setting = QRScanSetting.objects.filter(qr_code=obj).first()
+        return scan_setting.domain if scan_setting else None
+
+    def get_design(self, obj):
+        design = QRDesign.objects.filter(qr_code=obj).first()
+        return QRDesignSerializer(design).data if design else None
+
+
 class QRCodeBundleSerializer(serializers.Serializer):
     QRCode = QRCodeSerializer(required=True)
     QRCodeData = QRCodeDataSerializer(required=False)
