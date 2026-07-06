@@ -43,8 +43,8 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
     email = models.EmailField(unique=True)
-    first_name = models.CharField(max_length=255)
-    last_name = models.CharField(max_length=255)
+    full_name = models.CharField(max_length=255)
+    # last_name = models.CharField(max_length=255)
     phone = models.CharField(max_length=255)
     # address = models.CharField(max_length=255)
     profile = models.ImageField(upload_to='profiles/', null=True, blank=True)
@@ -58,10 +58,10 @@ class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
     objects = UserManager()
 
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['first_name', 'last_name']
+    REQUIRED_FIELDS = ['full_name']
 
     class Meta:
-        ordering = ('first_name', 'last_name',)
+        # ordering = ('first_name', 'last_name',)
         verbose_name = 'User'
 
     def __str__(self):

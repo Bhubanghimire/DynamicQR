@@ -4,8 +4,8 @@ from accounts.models import OTP, User
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ("id", "email", "first_name", "last_name", "phone", "is_active", "is_staff", "date_joined")
-    search_fields = ("email", "first_name", "last_name", "phone")
+    list_display = ("id", "email", "full_name",  "phone", "is_active", "is_staff", "date_joined")
+    search_fields = ("email", "full_name",  "phone")
     list_filter = ("is_active", "is_staff", "gender", "user_type")
     ordering = ("id",)
 

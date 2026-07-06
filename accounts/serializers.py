@@ -26,8 +26,7 @@ class SendOtpSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     otp = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    first_name = serializers.CharField(required=False, allow_blank=True, default="")
-    last_name = serializers.CharField(required=False, allow_blank=True, default="")
+    full_name = serializers.CharField(required=False, allow_blank=True, default="")
     phone = serializers.CharField(required=False, allow_blank=True, default="")
     birth_date = serializers.DateField(required=False, allow_null=True)
     gender = serializers.PrimaryKeyRelatedField(required=False, allow_null=True, queryset=ConfigChoice.objects.all())
@@ -39,8 +38,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             "email",
             "otp",
             "password",
-            "first_name",
-            "last_name",
+            "full_name",
             "phone",
             "birth_date",
             "gender",
@@ -78,8 +76,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "email",
-            "first_name",
-            "last_name",
+            "full_name",
             "phone",
             "profile",
             "birth_date",
@@ -100,8 +97,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
 
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
-    first_name = serializers.CharField(required=False, allow_blank=True)
-    last_name = serializers.CharField(required=False, allow_blank=True)
+    full_name = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
     birth_date = serializers.DateField(required=False, allow_null=True)
     gender = serializers.PrimaryKeyRelatedField(required=False, allow_null=True, queryset=ConfigChoice.objects.all())
@@ -110,8 +106,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "first_name",
-            "last_name",
+            "full_name",
             "phone",
             "birth_date",
             "gender",
