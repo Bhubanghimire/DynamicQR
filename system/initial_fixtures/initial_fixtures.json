@@ -5,7 +5,7 @@
         "fields": {
             "name": "user_type",
             "description": "This is for User type category.",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
@@ -14,12 +14,20 @@
         "fields": {
             "name": "gender_type",
             "description": "This is for video call category.",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
 
         }
     },
+    {
+        "model": "system.ConfigCategory",
+        "pk": 3,
+        "fields": {
+            "name": "qr_type",
+            "description": "This is for video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
 
-
+        }
+    },
 
 
 
@@ -33,7 +41,7 @@
             "image": null,
             "status": true,
             "description": "This is center admin of user type category.",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
@@ -45,7 +53,7 @@
             "image": null,
             "status": true,
             "description": "This is lecturer of user type category",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
@@ -57,7 +65,7 @@
             "image": null,
             "status": true,
             "description": "This is for student category.",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
@@ -69,7 +77,7 @@
             "image": null,
             "status": true,
             "description": "This is for video call category.",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
@@ -81,8 +89,156 @@
             "image": null,
             "status": true,
             "description": "This is for zoom video call category.",
-            "created_at": "2024-05-03T06:41:11.567Z"
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk":6,
+        "fields": {
+            "name": "Website/URL",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk":7,
+        "fields": {
+            "name": "WhatsApp",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk":8,
+        "fields": {
+            "name": "Social Media",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk":9,
+        "fields": {
+            "name": "Google Maps",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":10,
+        "fields": {
+            "name": "Wi-Fi",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":11,
+        "fields": {
+            "name": "Event",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk":12,
+        "fields": {
+            "name": "Email",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":13,
+        "fields": {
+            "name": "Digital Business Card",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":14,
+        "fields": {
+            "name": "PDF",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":15,
+        "fields": {
+            "name": "Webpage/Landing Page",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":16,
+        "fields": {
+            "name": "Video",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":17,
+        "fields": {
+            "name": "Product",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },{
+        "model": "system.ConfigChoice",
+        "pk":18,
+        "fields": {
+            "name": "Menu",
+            "category_id": 3,
+            "image": null,
+            "status": true,
+            "description": "This is for zoom video call category.",
+            "created_at": "2026-05-03T06:41:11.567Z"
         }
     }
 
-  ]
+]
