@@ -1,7 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 
-from Qr.models import Project, QRCode, QRCodeData, QRSchedule, QRScanSetting
+from Qr.models import Project, QRCode, QRCodeData, QRDesign, QRSchedule, QRScanSetting
 from system.models import ConfigChoice
 
 
@@ -55,6 +55,19 @@ class QRScanSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = QRScanSetting
         exclude = ["is_deleted", "deleted_at", "qr_code"]
+
+
+class QRDesignSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QRDesign
+        exclude = ["is_deleted", "deleted_at"]
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["eye_style"] = StatusSummarySerializer(instance.eye_style).data
+        representation["pattern_style"] = StatusSummarySerializer(instance.pattern_style).data
+        representation["frame"] = StatusSummarySerializer(instance.frame).data if instance.frame else None
+        return representation
 
 
 class QRCodeBundleSerializer(serializers.Serializer):

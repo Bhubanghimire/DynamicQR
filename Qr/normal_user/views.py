@@ -12,6 +12,7 @@ from Qr.serializers import (
     ProjectQRActionSerializer,
     QRCodeSerializer,
     QRCodeBundleSerializer,
+    QRDesignSerializer,
 )
 
 
@@ -164,6 +165,8 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
 
     def get_serializer_class(self):
+        if self.action == "save_design":
+            return QRDesignSerializer
         if self.action in {"create", "update", "partial_update", "retrieve"}:
             return QRCodeBundleSerializer
         return super().get_serializer_class()
@@ -206,3 +209,13 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response({"data": {}, "message": "QR code deleted successfully."}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="design")
+    def save_design(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        design = serializer.save()
+        return Response(
+            {"data": self.get_serializer(design).data, "message": "QR design saved successfully."},
+            status=status.HTTP_201_CREATED,
+        )
