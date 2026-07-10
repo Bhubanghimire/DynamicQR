@@ -12,7 +12,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.schemas.openapi import AutoSchema
 from rest_framework import status
-from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST
+from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
 from accounts.models import OTP, User
@@ -88,17 +88,26 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['POST'], url_path='refresh')
     def refresh(self, request):
-        serializer = RefreshSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        token = serializer.validated_data['refresh_token']
-        if token is None:
-            return Response({"message": "please send refresh token in payload"}, status=HTTP_400_BAD_REQUEST)
+        refresh_token = request.COOKIES.get("refresh_token")
+        # serializer = RefreshSerializer(data=refresh_token)
+        # serializer.is_valid(raise_exception=True)
+        # token = serializer.validated_data['refresh_token']
+        # if token is None:
+        #     return Response({"message": "please send refresh token in payload"}, status=HTTP_400_BAD_REQUEST)
+
+        refresh_token = request.COOKIES.get("refresh_token")
+
+        if not refresh_token:
+            return Response(
+                {"message": "Refresh token not found"},
+                status=HTTP_401_UNAUTHORIZED,
+            )
 
         try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+            payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise exceptions.AuthenticationFailed('Refresh Token expired')
-        except Exception:
+        except jwt.InvalidTokenError:
             raise exceptions.AuthenticationFailed("Invalid Refresh Token")
 
         user = User.objects.filter(id=payload.get('user_id')).first()
@@ -109,15 +118,45 @@ class AuthViewSet(viewsets.ViewSet):
             raise exceptions.AuthenticationFailed('user is inactive')
 
         access_token = generate_access_token(user)
-        refresh_token = generate_refresh_token(user)
-        response = {
-            "data": {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
+        # refresh_token = generate_refresh_token(user)
+        # response = {
+        #     "data": {
+        #         "access_token": access_token
+        #         # "refresh_token": refresh_token,
+        #     },
+        #     "message": "New Generated Credentials."
+        # }
+        # response.set_cookie(
+        #     key="refresh_token",
+        #     value=refresh_token,
+        #     httponly=True,
+        #     secure=not settings.DEBUG,
+        #     samesite="Lax",
+        #     path="/api/auth/refresh/",
+        # )
+        #
+        # return Response(response)
+
+        response = Response(
+            {
+                "data": {
+                    "access_token": access_token,
+                },
+                "message": "Logged in successfully."
             },
-            "message": "New Generated Credentials."
-        }
-        return Response(response)
+            status=HTTP_200_OK,
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=not settings.DEBUG,  # True in production
+            samesite="Lax",
+            # path="/api/v1.1/user/accounts/auth/refresh/",  # Match your actual refresh URL
+        )
+
+        return response
 
     @action(detail=False, methods=['POST'], url_path='login')
     def login(self, request):
@@ -141,14 +180,45 @@ class AuthViewSet(viewsets.ViewSet):
         access_token = generate_access_token(user)
         refresh_token = generate_refresh_token(user)
 
-        response = {
-            "data": {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
+        # response = {
+        #     "data": {
+        #         "access_token": access_token,
+        #         "refresh_token": refresh_token,
+        #     },
+        #     "message": "loggedIn successfully."
+        # }
+        # response.set_cookie(
+        #     key="refresh_token",
+        #     value=refresh_token,
+        #     httponly=True,
+        #     secure=True,  # True in production (HTTPS)
+        #     samesite="Lax",  # or "None" if frontend is on another domain
+        #     max_age=7 * 24 * 60 * 60,
+        #     path="/api/auth/refresh/"
+        # )
+        # return Response(response, status=HTTP_200_OK)
+
+        response = Response(
+            {
+                "data": {
+                    "access_token": access_token,
+                },
+                "message": "Logged in successfully."
             },
-            "message": "loggedIn successfully."
-        }
-        return Response(response, status=HTTP_200_OK)
+            status=HTTP_200_OK,
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=not settings.DEBUG,  # True in production
+            samesite="Lax",
+            max_age=7 * 24 * 60 * 60,
+            path="/api/v1.1/user/accounts/auth/refresh/",  # Match your actual refresh URL
+        )
+
+        return response
 
     @action(detail=False, methods=['POST'], url_path='send-otp')
     def otp_send(self, request):
