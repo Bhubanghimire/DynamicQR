@@ -10,6 +10,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
 
     def authenticate(self, request):
         header = authentication.get_authorization_header(request).split()
+
         if not header:
             return None
 
@@ -17,17 +18,27 @@ class JWTAuthentication(authentication.BaseAuthentication):
             return None
 
         token = header[1].decode()
+
         try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+            payload = jwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=["HS256"]
+            )
         except jwt.ExpiredSignatureError:
             raise exceptions.AuthenticationFailed("Access token expired")
         except jwt.InvalidTokenError:
             raise exceptions.AuthenticationFailed("Invalid access token")
 
         user = User.objects.filter(id=payload.get("user_id")).first()
+
         if user is None:
             raise exceptions.AuthenticationFailed("User not found")
+
         if not user.is_active:
             raise exceptions.AuthenticationFailed("User is inactive")
 
         return (user, payload)
+
+    def authenticate_header(self, request):
+        return self.keyword
