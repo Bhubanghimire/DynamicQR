@@ -10,11 +10,11 @@ class ConfigCategorySerializer(serializers.ModelSerializer):
 
 
 class ConfigChoiceSerializer(serializers.ModelSerializer):
-    category_id = serializers.IntegerField(read_only=True)
+    # category_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = ConfigChoice
-        fields = ["id", "name", "category_id"]
+        fields = ["id", "name", "image"]
 
 
 class ConfigCategoryListResponseSerializer(serializers.Serializer):

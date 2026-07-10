@@ -260,6 +260,7 @@ class AuthViewSet(viewsets.ViewSet):
 class ProfileViewset(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ProfileDetailSerializer
+    schema = AccountsAuthSchema()
 
     def get_object(self):
         return self.request.user

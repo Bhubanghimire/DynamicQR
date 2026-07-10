@@ -20,10 +20,10 @@ class Project(SoftDeletable):
 
 class QRCode(SoftDeletable):
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True)
-    user_id = models.ForeignKey(User, on_delete=models.RESTRICT)
     name = models.CharField(max_length=200)
     qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_type')
-    status = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_status')
+    status = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
 
 
 class QRCodeData(SoftDeletable):
@@ -33,6 +33,7 @@ class QRCodeData(SoftDeletable):
 
 class QRSchedule(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
+    name = models.CharField(max_length=200, null=True, blank=True)
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     timezone = models.CharField(max_length=100)
@@ -42,19 +43,28 @@ class QRSchedule(SoftDeletable):
 class QRScanSetting(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
     is_scan_limit = models.BooleanField(default=False)
+    domain = models.URLField(null=True, blank=True)
+    password = models.CharField(max_length=100, null=True, blank=True)
     scan_limit = models.PositiveIntegerField(null=True, blank=True)
     is_time_limit = models.BooleanField(default=False)
     time_limit = models.PositiveIntegerField(null=True, blank=True)  # in seconds
 
+class TemplateDesign(SoftDeletable):
+    design_data = models.JSONField()
+    status = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
+
 
 class QRDesign(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
-    eye_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='eye_style')
-    pattern_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='pattern_style')
-    foreground_color = models.CharField(max_length=7)  # Hex color code
-    background_color = models.CharField(max_length=7)  # Hex color code
-    logo = models.ImageField(upload_to='qr_logos/', null=True, blank=True)
-    frame = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, null=True, blank=True)
+    design_data = models.JSONField()
+    # eye_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='eye_style')
+    # pattern_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='pattern_style')
+    # foreground_color = models.CharField(max_length=7)  # Hex color code
+    # background_color = models.CharField(max_length=7)  # Hex color code
+    # logo = models.ImageField(upload_to='qr_logos/', null=True, blank=True)
+    template = models.ForeignKey(TemplateDesign, on_delete=models.RESTRICT, null=True, blank=True)
 
     class Meta:
         verbose_name_plural = "QR Designs"
@@ -63,9 +73,7 @@ class QRDesign(SoftDeletable):
         return f"Design for QR Code ID: {self.qr_code.id}"
 
 
-
-
-class invitations(SoftDeletable):
+class Invitations(SoftDeletable):
     email = models.EmailField()
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     resource_id = models.PositiveIntegerField()
