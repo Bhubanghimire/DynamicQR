@@ -19,10 +19,16 @@ from Qr.serializers import (
 
 class ProjectSchema(AutoSchema):
     def get_tags(self, path, method):
-        return ["Qr"]
+        tag_by_basename = {
+            "project": "Projects",
+            "Qr": "QR Codes",
+            "template_design": "Templates",
+        }
+        return [tag_by_basename.get(getattr(self.view, "basename", None), "Qr")]
 
     def get_operation_id(self, path, method):
-        return f"projects_{self.view.action}"
+        prefix = getattr(self.view, "basename", self.view.__class__.__name__)
+        return f"{prefix.lower()}_{self.view.action}"
 
     def get_description(self, path, method):
         action = getattr(self.view, "action", None)
