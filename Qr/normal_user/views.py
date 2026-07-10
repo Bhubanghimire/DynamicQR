@@ -5,7 +5,7 @@ from rest_framework.schemas.openapi import AutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from accounts.authentication import JWTAuthentication
-from Qr.models import Project, QRCode
+from Qr.models import Project, QRCode, TemplateDesign
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -13,7 +13,7 @@ from Qr.serializers import (
     QRCodeSerializer,
     QRCodeBundleSerializer,
     QRDesignSerializer,
-    QRCodeSummarySerializer,
+    QRCodeSummarySerializer, TemplateDesignSerializer,
 )
 
 
@@ -229,5 +229,61 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(qrcodes, many=True)
         return Response(
             {"data": serializer.data, "message": "QR summary fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class TemplateViewSet(viewsets.ModelViewSet):
+    queryset = TemplateDesign.objects.all()
+    serializer_class = TemplateDesignSerializer
+    permission_classes = [IsAuthenticated]
+    schema = ProjectSchema()
+    authentication_classes = [JWTAuthentication]
+
+    def list(self, request, *args, **kwargs):
+        templates = self.get_queryset()
+        serializer = self.get_serializer(templates, many=True)
+        return Response(
+            {"data": serializer.data, "message": "Templates fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        template = self.get_object()
+        serializer = self.get_serializer(template)
+        return Response(
+            {"data": serializer.data, "message": "Template fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response(
+            {"data": serializer.data, "message": "Template created successfully."},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(
+            {"data": serializer.data, "message": "Template updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    # def partial_update(self, request, *args, **kwargs):
+    #     kwargs["partial"] = True
+    #     return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {"data": {}, "message": "Template deleted successfully."},
             status=status.HTTP_200_OK,
         )

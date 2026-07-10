@@ -1,7 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 
-from Qr.models import Project, QRCode, QRCodeData, QRDesign, QRSchedule, QRScanSetting
+from Qr.models import Project, QRCode, QRCodeData, QRDesign, QRSchedule, QRScanSetting, TemplateDesign
 from system.models import ConfigChoice
 
 
@@ -185,3 +185,12 @@ class ProjectDetailSerializer(ProjectSerializer):
 
 class ProjectQRActionSerializer(serializers.Serializer):
     qr_id = serializers.IntegerField(help_text="ID of the QR code to add to or remove from the project.")
+
+
+
+class TemplateDesignSerializer(serializers.ModelSerializer):
+    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
+    class Meta:
+        model = TemplateDesign
+        exclude = ["is_deleted", "deleted_at"]

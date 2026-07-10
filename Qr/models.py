@@ -49,6 +49,12 @@ class QRScanSetting(SoftDeletable):
     is_time_limit = models.BooleanField(default=False)
     time_limit = models.PositiveIntegerField(null=True, blank=True)  # in seconds
 
+class TemplateDesign(SoftDeletable):
+    design_data = models.JSONField()
+    status = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
+
 
 class QRDesign(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
