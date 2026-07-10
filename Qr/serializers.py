@@ -34,7 +34,6 @@ class QRCodeSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["status"] = StatusSummarySerializer(instance.status).data
         representation["qr_type"] = StatusSummarySerializer(instance.qr_type).data
         return representation
 
@@ -64,15 +63,14 @@ class QRDesignSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["eye_style"] = StatusSummarySerializer(instance.eye_style).data
-        representation["pattern_style"] = StatusSummarySerializer(instance.pattern_style).data
-        representation["frame"] = StatusSummarySerializer(instance.frame).data if instance.frame else None
+        # representation["eye_style"] = StatusSummarySerializer(instance.eye_style).data
+        # representation["pattern_style"] = StatusSummarySerializer(instance.pattern_style).data
+        # representation["frame"] = StatusSummarySerializer(instance.frame).data if instance.frame else None
         return representation
 
 
 class QRCodeSummarySerializer(serializers.ModelSerializer):
     type = serializers.CharField(source="qr_type.name", read_only=True)
-    status = serializers.CharField(source="status.name", read_only=True)
     domain_name = serializers.SerializerMethodField()
     design = serializers.SerializerMethodField()
 

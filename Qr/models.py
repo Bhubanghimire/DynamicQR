@@ -58,12 +58,13 @@ class TemplateDesign(SoftDeletable):
 
 class QRDesign(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
-    eye_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='eye_style')
-    pattern_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='pattern_style')
-    foreground_color = models.CharField(max_length=7)  # Hex color code
-    background_color = models.CharField(max_length=7)  # Hex color code
-    logo = models.ImageField(upload_to='qr_logos/', null=True, blank=True)
-    frame = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, null=True, blank=True)
+    design_data = models.JSONField()
+    # eye_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='eye_style')
+    # pattern_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='pattern_style')
+    # foreground_color = models.CharField(max_length=7)  # Hex color code
+    # background_color = models.CharField(max_length=7)  # Hex color code
+    # logo = models.ImageField(upload_to='qr_logos/', null=True, blank=True)
+    template = models.ForeignKey(TemplateDesign, on_delete=models.RESTRICT, null=True, blank=True)
 
     class Meta:
         verbose_name_plural = "QR Designs"

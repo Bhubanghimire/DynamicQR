@@ -172,7 +172,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
 
     def get_serializer_class(self):
-        if self.action == "summary":
+        if self.action == "preview":
             return QRCodeSummarySerializer
         if self.action == "save_design":
             return QRDesignSerializer
@@ -229,12 +229,12 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
-    @action(detail=False, methods=["get"], url_path="summary")
-    def summary(self, request, *args, **kwargs):
-        qrcodes = self.get_queryset()
-        serializer = self.get_serializer(qrcodes, many=True)
+    @action(detail=True, methods=["get"], url_path="preview")
+    def preview(self, request, *args, **kwargs):
+        qr_code = self.get_object()
+        serializer = self.get_serializer(qr_code)
         return Response(
-            {"data": serializer.data, "message": "QR summary fetched successfully."},
+            {"data": serializer.data, "message": "QR preview fetched successfully."},
             status=status.HTTP_200_OK,
         )
 
