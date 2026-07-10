@@ -151,9 +151,9 @@ class AuthViewSet(viewsets.ViewSet):
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=not settings.DEBUG,  # True in production
-            samesite="Lax",
-            # path="/api/v1.1/user/accounts/auth/refresh/",  # Match your actual refresh URL
+            secure=True,
+            samesite="None",
+            path="/api/v1.1/user/accounts/auth/refresh/"
         )
 
         return response
@@ -212,10 +212,9 @@ class AuthViewSet(viewsets.ViewSet):
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=not settings.DEBUG,  # True in production
-            samesite="Lax",
-            max_age=7 * 24 * 60 * 60,
-            path="/api/v1.1/user/accounts/auth/refresh/",  # Match your actual refresh URL
+            secure=True,
+            samesite="None",
+            path="/api/v1.1/user/accounts/auth/refresh/"
         )
 
         return response
