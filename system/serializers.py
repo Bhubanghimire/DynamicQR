@@ -14,7 +14,7 @@ class ConfigChoiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ConfigChoice
-        fields = ["id", "name", "image"]
+        fields = ["id", "name", "image", "description"]
 
 
 class ConfigCategoryListResponseSerializer(serializers.Serializer):

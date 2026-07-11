@@ -44,6 +44,7 @@ class QRScanSetting(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
     is_scan_limit = models.BooleanField(default=False)
     domain = models.URLField(null=True, blank=True)
+    password_enabled = models.BooleanField(default=False)
     password = models.CharField(max_length=100, null=True, blank=True)
     scan_limit = models.PositiveIntegerField(null=True, blank=True)
     is_time_limit = models.BooleanField(default=False)
