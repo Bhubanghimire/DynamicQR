@@ -10,7 +10,7 @@ from django.conf import settings
 def generate_access_token(user):
 
     access_token_payload = {
-        'user_id': user.id,
+        'user_id': str(user.id),
         "is_superuser":user.is_superuser,
         'exp': datetime.datetime.utcnow() + datetime.timedelta(days=0, minutes=5),
         'iat': datetime.datetime.utcnow(),
@@ -21,7 +21,7 @@ def generate_access_token(user):
 
 def generate_refresh_token(user):
     refresh_token_payload = {
-        'user_id': user.id,
+        'user_id': str(user.id),
         'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1,minutes=1),
         'iat': datetime.datetime.utcnow()
     }
