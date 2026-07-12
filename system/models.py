@@ -1,9 +1,12 @@
+import uuid
+
 from django.db import models
 from django.utils import timezone
 
 
 # Create your models here.
 class ConfigCategory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
     description = models.TextField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -13,6 +16,7 @@ class ConfigCategory(models.Model):
 
 
 class ConfigChoice(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     category = models.ForeignKey(ConfigCategory, on_delete=models.CASCADE)
     name = models.CharField(max_length=100)
     image = models.ImageField(upload_to='choice/', null=True, blank=True)
@@ -43,6 +47,7 @@ class SoftDeletable(models.Model):
         - `is_deleted` (BooleanField): Indicates whether the object has been soft-deleted. Default is False.
         - `deleted_at` (DateTimeField): Timestamp indicating when the object was soft-deleted. Null if not deleted.
     """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     is_deleted = models.BooleanField(default=False, help_text="Indicates whether this object has been soft-deleted.")
     deleted_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when the object was soft-deleted.")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -73,4 +78,3 @@ class SoftDeletable(models.Model):
         """
         self.__class__.objects.get_deleted().filter(pk=self.pk).update(is_deleted=False, deleted_at=None)
         self.refresh_from_db()
-

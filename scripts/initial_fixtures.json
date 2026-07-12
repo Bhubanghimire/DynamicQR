@@ -1,7 +1,7 @@
 [
     {
         "model": "system.ConfigCategory",
-        "pk": "58b4a22e-b412-4efa-8cff-61ffc73e51f7",
+        "pk": 1,
         "fields": {
             "name": "user_type",
             "description": "This is for User type category.",
@@ -10,28 +10,34 @@
     },
     {
         "model": "system.ConfigCategory",
-        "pk": "9914b574-df27-43bd-bef1-9a5bcba73f25",
+        "pk": 2,
         "fields": {
             "name": "gender_type",
             "description": "This is for video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
+
         }
     },
     {
         "model": "system.ConfigCategory",
-        "pk": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+        "pk": 3,
         "fields": {
             "name": "qr_type",
-            "description": "✨ Discover the magic of QR codes! This category brings you a delightful collection of QR content types to share, connect, and engage with your audience in the most creative ways. 🌟",
+            "description": "This is for video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
+
         }
     },
+
+
+
+
     {
         "model": "system.ConfigChoice",
-        "pk": "b120114c-70ea-4a46-8845-72b291182fe5",
+        "pk": 1,
         "fields": {
             "name": "Admin",
-            "category_id": "58b4a22e-b412-4efa-8cff-61ffc73e51f7",
+            "category_id": 1,
             "image": null,
             "status": true,
             "description": "This is center admin of user type category.",
@@ -40,10 +46,10 @@
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "004dbed1-bb73-496a-b5f2-a244b42de122",
+        "pk": 2,
         "fields": {
             "name": "Normal User",
-            "category_id": "58b4a22e-b412-4efa-8cff-61ffc73e51f7",
+            "category_id": 1,
             "image": null,
             "status": true,
             "description": "This is lecturer of user type category",
@@ -52,10 +58,10 @@
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "7882a222-dee1-47e3-8d48-d6d2a3aca850",
+        "pk": 3,
         "fields": {
             "name": "Male",
-            "category_id": "9914b574-df27-43bd-bef1-9a5bcba73f25",
+            "category_id": 2,
             "image": null,
             "status": true,
             "description": "This is for student category.",
@@ -64,10 +70,10 @@
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "81dccadf-3e57-4307-bc15-1c0f5b58ea72",
+        "pk": 4,
         "fields": {
             "name": "Female",
-            "category_id": "9914b574-df27-43bd-bef1-9a5bcba73f25",
+            "category_id": 2,
             "image": null,
             "status": true,
             "description": "This is for video call category.",
@@ -76,10 +82,10 @@
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "46572e68-9408-4eed-a1df-f3f773aba475",
+        "pk":5,
         "fields": {
             "name": "Others",
-            "category_id": "9914b574-df27-43bd-bef1-9a5bcba73f25",
+            "category_id": 2,
             "image": null,
             "status": true,
             "description": "This is for zoom video call category.",
@@ -88,158 +94,151 @@
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "c5cf8fdb-6a63-4143-9a91-53b15b70a97e",
+        "pk":6,
         "fields": {
             "name": "Website/URL",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "🌐 Share your digital doorstep! Link your website or any URL to let people explore your online world with a simple scan.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "e050984a-4b7d-49d2-b92c-ee2d0fc7ceb9",
+        "pk":7,
         "fields": {
             "name": "WhatsApp",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "💬 Connect instantly! Let your audience reach you directly on WhatsApp with just one scan - because conversations matter.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "91529930-e589-4b4e-b887-b8bce17b33b9",
+        "pk":8,
         "fields": {
             "name": "Social Media",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "📱 Build your social presence! Connect all your social media profiles and let your community find you everywhere they love to be.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "6a16a631-895d-4aa0-b072-ca9cc26a6981",
+        "pk":9,
         "fields": {
             "name": "Google Maps",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "📍 Guide them home! Help people find your physical location effortlessly with Google Maps integration - no more getting lost!",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "221426fb-63e6-4bd3-9d7a-1729d5b53fa5",
+        "pk":10,
         "fields": {
             "name": "Wi-Fi",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "📶 Stay connected! Share your Wi-Fi network details seamlessly - because everyone deserves a strong, reliable connection.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "c5e4c79e-6679-4ef6-ac1c-4b10b7ebbf62",
+        "pk":11,
         "fields": {
             "name": "Event",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "🎉 Make your event unforgettable! Share event details, schedules, and registrations instantly with a single QR scan.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
     },
     {
         "model": "system.ConfigChoice",
-        "pk": "80fe2eb5-3a8b-4049-bd21-96bbfd39e6e1",
+        "pk":12,
         "fields": {
             "name": "Email",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "✉️ Open the conversation! Let people reach your inbox effortlessly - because every connection starts with a message.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "25bb1fc7-12af-4514-84ce-7d24e8bd2393",
+        "pk":13,
         "fields": {
             "name": "Digital Business Card",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "💼 Make networking magical! Share your digital business card and leave a lasting impression - modern, elegant, and always accessible.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "ad051dbe-b84e-476e-9615-6fbb30ba6730",
+        "pk":14,
         "fields": {
             "name": "PDF",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "📄 Share knowledge beautifully! Deliver important documents, brochures, and resources as PDFs with a simple, elegant scan.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "a30d2296-be40-428a-83ca-935b3ecb382d",
+        "pk":15,
         "fields": {
             "name": "Webpage/Landing Page",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "🚀 Launch your story! Create stunning landing pages and web experiences that captivate your audience from the very first scan.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "f95c4a9d-b285-4bf6-a637-d7d19dfa0841",
+        "pk":16,
         "fields": {
             "name": "Video",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "🎬 Bring stories to life! Share engaging videos, tutorials, and visual content that inspire, educate, and entertain.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "72b44e70-b83a-42fd-9c2c-4cbfbc86f325",
+        "pk":17,
         "fields": {
             "name": "Product",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "🛍️ Showcase your treasures! Present your products, collections, and offerings in the most beautiful and accessible way.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
-    },
-    {
+    },{
         "model": "system.ConfigChoice",
-        "pk": "4a36d1e3-202e-420f-8772-94cde50c8fb2",
+        "pk":18,
         "fields": {
             "name": "Menu",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": 3,
             "image": null,
             "status": true,
-            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "description": "This is for zoom video call category.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
     }
+
 ]

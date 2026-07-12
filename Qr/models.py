@@ -12,7 +12,7 @@ class Project(SoftDeletable):
     owner = models.ForeignKey(User, on_delete=models.RESTRICT)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    status = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
+    status = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name
@@ -77,7 +77,7 @@ class QRDesign(SoftDeletable):
 class Invitations(SoftDeletable):
     email = models.EmailField()
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    resource_id = models.PositiveIntegerField()
+    resource_id = models.UUIDField()
     content_object = GenericForeignKey('content_type', 'resource_id')
     role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='role')
     token = models.CharField(max_length=100, unique=True)
@@ -91,6 +91,6 @@ class Invitations(SoftDeletable):
 class SharePermissions(SoftDeletable):
     user_id = models.ForeignKey(User, on_delete=models.RESTRICT)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    resource_id = models.PositiveIntegerField()
+    resource_id = models.UUIDField()
     content_object = GenericForeignKey('content_type', 'resource_id')
     role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
