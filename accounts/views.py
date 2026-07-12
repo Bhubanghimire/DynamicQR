@@ -262,8 +262,7 @@ class AuthViewSet(viewsets.ViewSet):
         user = User.objects.create_user(
             email=data['email'],
             password=data['password'],
-            first_name=data.get('first_name', ''),
-            last_name=data.get('last_name', ''),
+            full_name=data.get('full_name', ''),
             phone=data.get('phone', ''),
             birth_date=data.get('birth_date'),
             gender=data.get('gender'),
