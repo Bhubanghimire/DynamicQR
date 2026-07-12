@@ -13,16 +13,16 @@ class StatusSummarySerializer(serializers.ModelSerializer):
 
 class ProjectSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
-    status = StatusSummarySerializer(read_only=True)
+    # status = StatusSummarySerializer(read_only=True)
 
     class Meta:
         model = Project
         # fields = "__all__"
         exclude = ["is_deleted", "deleted_at"]
 
-    def create(self, validated_data):
-        validated_data["status"] = True
-        return super().create(validated_data)
+    # def create(self, validated_data):
+    #     validated_data["status"] = True
+    #     return super().create(validated_data)
 
 
 class QRCodeSerializer(serializers.ModelSerializer):
