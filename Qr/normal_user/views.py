@@ -5,6 +5,7 @@ from rest_framework.schemas.openapi import AutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from accounts.authentication import JWTAuthentication
+from django.db.models import Count, Q
 from Qr.models import Project, QRCode, TemplateDesign
 from Qr.serializers import (
     ProjectSerializer,
@@ -65,7 +66,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     model = Project
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectSerializer
-    queryset = Project.objects.all()
+    queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("name")
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -165,7 +166,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
 
 class QRCodeViewSet(viewsets.ModelViewSet):
-    queryset = QRCode.objects.all()
+    queryset = QRCode.objects.all().order_by("name")
     schema = ProjectSchema()
     serializer_class = QRCodeSerializer
     permission_classes = [IsAuthenticated]

@@ -13,6 +13,7 @@ class StatusSummarySerializer(serializers.ModelSerializer):
 
 class ProjectSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    qr_count = serializers.IntegerField(read_only=True)
     # status = StatusSummarySerializer(read_only=True)
 
     class Meta:
@@ -182,7 +183,7 @@ class ProjectDetailSerializer(ProjectSerializer):
 
 
 class ProjectQRActionSerializer(serializers.Serializer):
-    qr_id = serializers.IntegerField(help_text="ID of the QR code to add to or remove from the project.")
+    qr_id = serializers.UUIDField(help_text="ID of the QR code to add to or remove from the project.")
 
 
 
