@@ -21,7 +21,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         exclude = ["is_deleted", "deleted_at"]
 
     def create(self, validated_data):
-        validated_data["status_id"] = 1
+        validated_data["status"] = True
         return super().create(validated_data)
 
 
