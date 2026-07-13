@@ -1,6 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
+from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 from DynamicOCR.schemas import PaginatedAutoSchema
 
@@ -25,6 +26,8 @@ class ConfigCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = ConfigCategorySerializer
     permission_classes = [AllowAny]
     http_method_names = ["get"]
+    filter_backends = [SearchFilter]
+    search_fields = ["name", "description"]
 
     def get_serializer_class(self):
         if self.action == "choices":
@@ -44,6 +47,7 @@ class ConfigCategoryViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="choices")
     def choices(self, request, pk=None):
         choices = ConfigChoice.objects.filter(category_id=pk).order_by("id")
+        choices = self.filter_queryset(choices)
         paginator = CustomPagination()
         page = paginator.paginate_queryset(choices, request, view=self)
         serializer = self.get_serializer(page, many=True)

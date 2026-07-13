@@ -1,6 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.filters import SearchFilter
 from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
@@ -68,8 +69,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     model = Project
     permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter]
+    search_fields = ["name", "description"]
     serializer_class = ProjectSerializer
     queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("name")
+
+    def get_search_fields(self):
+        if self.action == "qrs":
+            return ["name", "qr_type__name"]
+        return ["name", "description"]
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -175,6 +183,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def qrs(self, request, *args, **kwargs):
         project = self.get_object()
         qrcodes = QRCode.objects.filter(project=project, is_deleted=False).order_by("name")
+        qrcodes = self.filter_queryset(qrcodes)
         paginator = CustomPagination()
         page = paginator.paginate_queryset(qrcodes, request, view=self)
         serializer = QRCodeSerializer(page, many=True)
@@ -189,6 +198,8 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     serializer_class = QRCodeSerializer
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
+    filter_backends = [SearchFilter]
+    search_fields = ["name", "qr_type__name"]
 
     def get_serializer_class(self):
         if self.action == "preview":
@@ -268,6 +279,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     schema = ProjectSchema()
     authentication_classes = [JWTAuthentication]
+    filter_backends = [SearchFilter]
+    search_fields = ["created_by__email"]
 
     def list(self, request, *args, **kwargs):
         templates = self.filter_queryset(self.get_queryset())

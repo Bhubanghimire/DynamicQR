@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from Qr.models import Project
 from DynamicOCR.pagination import CustomPagination
+from django.db.models import Q
 
 
 class AnalyticsSchema(PaginatedAutoSchema):
@@ -37,6 +38,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
             "created_at",
             "updated_at",
         )
+        search = request.query_params.get("search")
+        if search:
+            projects = projects.filter(Q(name__icontains=search) | Q(description__icontains=search))
         paginator = CustomPagination()
         page = paginator.paginate_queryset(projects, request, view=self)
         return paginator.get_paginated_response(list(page))
