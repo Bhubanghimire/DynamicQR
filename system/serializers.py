@@ -25,3 +25,27 @@ class ConfigCategoryListResponseSerializer(serializers.Serializer):
 class ConfigChoiceListResponseSerializer(serializers.Serializer):
     data = ConfigChoiceSerializer(many=True)
     msg = serializers.CharField()
+
+
+class PaginatedListResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    data = serializers.JSONField()
+    msg = serializers.CharField(required=False)
+
+
+class ConfigCategoryPaginatedResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    data = ConfigCategorySerializer(many=True)
+    msg = serializers.CharField()
+
+
+class ConfigChoicePaginatedResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    data = ConfigChoiceSerializer(many=True)
+    msg = serializers.CharField()

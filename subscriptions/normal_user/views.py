@@ -1,13 +1,14 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.schemas.openapi import AutoSchema
+from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from Qr.models import Project
+from DynamicOCR.pagination import CustomPagination
 
 
-class ProjectSchema(AutoSchema):
+class ProjectSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
         return ["Subscription"]
 
@@ -36,4 +37,6 @@ class SubscriptionViewSet(viewsets.ViewSet):
             "created_at",
             "updated_at",
         )
-        return Response({"data": list(projects)}, status=status.HTTP_200_OK)
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(projects, request, view=self)
+        return paginator.get_paginated_response(list(page))

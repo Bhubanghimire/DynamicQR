@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.schemas.openapi import AutoSchema
+from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from accounts.authentication import JWTAuthentication
@@ -16,9 +16,10 @@ from Qr.serializers import (
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer,
 )
+from DynamicOCR.pagination import CustomPagination
 
 
-class ProjectSchema(AutoSchema):
+class ProjectSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
         tag_by_basename = {
             "project": "Projects",
@@ -74,9 +75,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return super().get_serializer_class()
 
     def list(self, request, *args, **kwargs):
-        projects = self.get_queryset()
-        serializer = self.get_serializer(projects, many=True)
-        return Response({"data": serializer.data, "message": "Projects fetched successfully."}, status=status.HTTP_200_OK)
+        projects = self.filter_queryset(self.get_queryset())
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(projects, request, view=self)
+        serializer = self.get_serializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["message"] = "Projects fetched successfully."
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         project = self.get_object()
@@ -182,9 +187,13 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         return super().get_serializer_class()
 
     def list(self, request, *args, **kwargs):
-        qrcodes = self.get_queryset()
-        serializer = self.get_serializer(qrcodes, many=True)
-        return Response({"data": serializer.data, "message": "QR codes fetched successfully."}, status=status.HTTP_200_OK)
+        qrcodes = self.filter_queryset(self.get_queryset())
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(qrcodes, request, view=self)
+        serializer = self.get_serializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["message"] = "QR codes fetched successfully."
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         qr_code = self.get_object()
@@ -248,12 +257,13 @@ class TemplateViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
 
     def list(self, request, *args, **kwargs):
-        templates = self.get_queryset()
-        serializer = self.get_serializer(templates, many=True)
-        return Response(
-            {"data": serializer.data, "message": "Templates fetched successfully."},
-            status=status.HTTP_200_OK,
-        )
+        templates = self.filter_queryset(self.get_queryset())
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(templates, request, view=self)
+        serializer = self.get_serializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["message"] = "Templates fetched successfully."
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         template = self.get_object()

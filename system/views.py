@@ -2,16 +2,19 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.schemas.openapi import AutoSchema
+from DynamicOCR.schemas import PaginatedAutoSchema
 
 from system.models import ConfigCategory, ConfigChoice
 from system.serializers import (
     ConfigCategorySerializer,
     ConfigChoiceSerializer,
-    ConfigCategoryListResponseSerializer,
-    ConfigChoiceListResponseSerializer,
+    ConfigCategoryPaginatedResponseSerializer,
+    ConfigChoicePaginatedResponseSerializer,
 )
-class CategorySchema(AutoSchema):
+from DynamicOCR.pagination import CustomPagination
+
+
+class CategorySchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
         return ["Category"]
 
@@ -33,18 +36,26 @@ class ConfigCategoryViewSet(viewsets.ModelViewSet):
             return super().get_response_serializer(path, method)
 
         if self.action == "list":
-            return ConfigCategoryListResponseSerializer()
+            return ConfigCategoryPaginatedResponseSerializer()
         if self.action == "choices":
-            return ConfigChoiceListResponseSerializer()
+            return ConfigChoicePaginatedResponseSerializer()
         return super().get_response_serializer(path, method)
 
     @action(detail=True, methods=["get"], url_path="choices")
     def choices(self, request, pk=None):
         choices = ConfigChoice.objects.filter(category_id=pk).order_by("id")
-        serializer = ConfigChoiceSerializer(choices, many=True)
-        return Response({"data": serializer.data, "msg": "Choices fetched successfully."})
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(choices, request, view=self)
+        serializer = self.get_serializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["msg"] = "Choices fetched successfully."
+        return response
 
     def list(self, request, *args, **kwargs):
-        categories = self.get_queryset()
-        serializer = self.get_serializer(categories, many=True)
-        return Response({"data": serializer.data, "msg": "Config categories fetched successfully."})
+        categories = self.filter_queryset(self.get_queryset())
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(categories, request, view=self)
+        serializer = self.get_serializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["msg"] = "Config categories fetched successfully."
+        return response

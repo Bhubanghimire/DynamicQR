@@ -151,6 +151,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_PAGINATION_CLASS': 'DynamicOCR.pagination.CustomPagination',
+    'PAGE_SIZE': 10,
 }
 
 
