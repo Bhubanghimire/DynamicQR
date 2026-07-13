@@ -38,6 +38,8 @@ class ProjectSchema(PaginatedAutoSchema):
             return "Attach a QR code to the project. URL path parameter `pk` is the project id and request body field `qr_id` is the QR code id."
         if action == "remove_qr":
             return "Detach a QR code from the project. URL path parameter `pk` is the project id and request body field `qr_id` is the QR code id."
+        if action == "qrs":
+            return "List QR codes attached to a project. URL path parameter `pk` is the project id."
         return super().get_description(path, method)
 
     def get_request_serializer(self, path, method):
@@ -168,6 +170,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=True, methods=["get"], url_path="qrs")
+    def qrs(self, request, *args, **kwargs):
+        project = self.get_object()
+        qrcodes = QRCode.objects.filter(project=project, is_deleted=False).order_by("name")
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(qrcodes, request, view=self)
+        serializer = QRCodeSerializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["message"] = "Project QR codes fetched successfully."
+        return response
 
 
 class QRCodeViewSet(viewsets.ModelViewSet):

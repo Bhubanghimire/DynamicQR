@@ -54,6 +54,12 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "https://cs-qrgen.vercel.app",
+]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -171,6 +177,4 @@ DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 
 from decouple import config
 
-print(config("EMAIL_HOST"))
-print(config("EMAIL_HOST_USER"))
-print(config("EMAIL_HOST_PASSWORD")[:20])
+
