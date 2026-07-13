@@ -6,7 +6,7 @@ from system.views import ConfigCategoryViewSet
 app_name = "system_user"
 
 system_router = DefaultRouter()
-system_router.register(r'config-categories', ConfigCategoryViewSet, basename='config-category')
+system_router.register('', ConfigCategoryViewSet, basename='config-category')
 
 urlpatterns = [
     path('', include(system_router.urls)),
