@@ -27,7 +27,7 @@ urlpatterns = [
     path("", home),
 
     # path("api/v1.1/admin/", include(("DynamicOCR.api.admin_urls", "api_admin"), namespace="api_admin")),
-    path("category/", include(("system.normal_user.urls", "system_user"), namespace="system_user")),
+    path("api/category/", include(("system.normal_user.urls", "system_user"), namespace="system_user")),
     path("api/v1.1/user/", include(("DynamicOCR.api.user_urls", "api_user"), namespace="api_user")),
     path("api/schema/", schema_view, name="api-schema"),
     path("swagger/", swagger_view, name="swagger-ui"),
