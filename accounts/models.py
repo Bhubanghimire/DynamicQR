@@ -65,10 +65,10 @@ class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
         verbose_name = 'User'
 
     def __str__(self):
-        return self.first_name
+        return self.full_name
 
     def get_full_name(self):
-        return f"{self.first_name} {self.last_name}"
+        return f"{self.full_name}"
 
 
 class OTP(models.Model):

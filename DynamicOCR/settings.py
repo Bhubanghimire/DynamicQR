@@ -47,6 +47,7 @@ INSTALLED_APPS = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "https://localhost:3000",
     "http://localhost:5173",
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
@@ -56,6 +57,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
+    "https://localhost:3000",
     "http://localhost:5173",
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
@@ -176,5 +178,12 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 
 from decouple import config
+
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_HTTPONLY = False  # False so frontend can read it if needed
+
+SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'None'
 
 

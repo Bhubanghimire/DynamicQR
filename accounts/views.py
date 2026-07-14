@@ -111,6 +111,7 @@ class AuthViewSet(viewsets.ViewSet):
             raise exceptions.AuthenticationFailed("Invalid Refresh Token")
 
         user = User.objects.filter(id=payload.get('user_id')).first()
+        print("user is ", user)
         if user is None:
             raise exceptions.AuthenticationFailed('User not found')
 
@@ -155,6 +156,8 @@ class AuthViewSet(viewsets.ViewSet):
             samesite="None",
             path="/api/v1.1/user/accounts/auth/refresh/"
         )
+
+
 
         return response
 
