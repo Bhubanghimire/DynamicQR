@@ -5,6 +5,8 @@ from django.core.mail import EmailMultiAlternatives
 from django.http import JsonResponse
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -20,6 +22,33 @@ from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSeri
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
     ProfileImageUpdateSerializer
+
+
+def set_refresh_cookie(response, refresh_token):
+    """
+    Use HTTPS-only cookie settings in production, but allow local HTTP dev.
+    """
+    cookie_kwargs = {
+        "key": "refresh_token",
+        "value": refresh_token,
+        "httponly": True,
+        "secure": settings.DEBUG,
+        "samesite":"None", #"Lax" if settings.DEBUG else "None",
+        "path": "/",  # CHANGE: Use "/" instead of specific path
+        "max_age": 6 * 60,  # 1 day
+    }
+
+    # Only add domain in production
+    if not settings.DEBUG:
+        cookie_domain = getattr(settings, "REFRESH_COOKIE_DOMAIN", None)
+        if cookie_domain:
+            cookie_kwargs["domain"] = cookie_domain
+        cookie_kwargs["samesite"] = "None"
+        cookie_kwargs["secure"] = True
+    print(cookie_kwargs)
+    # response.set_cookie(**cookie_kwargs)
+    response.set_cookie(**cookie_kwargs)
+    return response
 
 
 class AccountsAuthSchema(AutoSchema):
@@ -67,6 +96,7 @@ class AccountsAuthSchema(AutoSchema):
         return super().get_responses(path, method)
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class AuthViewSet(viewsets.ViewSet):
     schema = AccountsAuthSchema()
     permission_classes_by_action = {
@@ -87,8 +117,8 @@ class AuthViewSet(viewsets.ViewSet):
             return [permission() for permission in self.permission_classes]
 
     @action(detail=False, methods=['POST'], url_path='refresh')
+    @csrf_exempt
     def refresh(self, request):
-        refresh_token = request.COOKIES.get("refresh_token")
         # serializer = RefreshSerializer(data=refresh_token)
         # serializer.is_valid(raise_exception=True)
         # token = serializer.validated_data['refresh_token']
@@ -111,7 +141,6 @@ class AuthViewSet(viewsets.ViewSet):
             raise exceptions.AuthenticationFailed("Invalid Refresh Token")
 
         user = User.objects.filter(id=payload.get('user_id')).first()
-        print("user is ", user)
         if user is None:
             raise exceptions.AuthenticationFailed('User not found')
 
@@ -119,24 +148,7 @@ class AuthViewSet(viewsets.ViewSet):
             raise exceptions.AuthenticationFailed('user is inactive')
 
         access_token = generate_access_token(user)
-        # refresh_token = generate_refresh_token(user)
-        # response = {
-        #     "data": {
-        #         "access_token": access_token
-        #         # "refresh_token": refresh_token,
-        #     },
-        #     "message": "New Generated Credentials."
-        # }
-        # response.set_cookie(
-        #     key="refresh_token",
-        #     value=refresh_token,
-        #     httponly=True,
-        #     secure=not settings.DEBUG,
-        #     samesite="Lax",
-        #     path="/api/auth/refresh/",
-        # )
-        #
-        # return Response(response)
+        refresh_token = generate_refresh_token(user)
 
         response = Response(
             {
@@ -148,18 +160,7 @@ class AuthViewSet(viewsets.ViewSet):
             status=HTTP_200_OK,
         )
 
-        response.set_cookie(
-            key="refresh_token",
-            value=refresh_token,
-            httponly=True,
-            secure=True,
-            samesite="None",
-            path="/api/v1.1/user/accounts/auth/refresh/"
-        )
-
-
-
-        return response
+        return set_refresh_cookie(response, refresh_token)
 
     @action(detail=False, methods=['POST'], url_path='login')
     def login(self, request):
@@ -183,23 +184,6 @@ class AuthViewSet(viewsets.ViewSet):
         access_token = generate_access_token(user)
         refresh_token = generate_refresh_token(user)
 
-        # response = {
-        #     "data": {
-        #         "access_token": access_token,
-        #         "refresh_token": refresh_token,
-        #     },
-        #     "message": "loggedIn successfully."
-        # }
-        # response.set_cookie(
-        #     key="refresh_token",
-        #     value=refresh_token,
-        #     httponly=True,
-        #     secure=True,  # True in production (HTTPS)
-        #     samesite="Lax",  # or "None" if frontend is on another domain
-        #     max_age=7 * 24 * 60 * 60,
-        #     path="/api/auth/refresh/"
-        # )
-        # return Response(response, status=HTTP_200_OK)
 
         response = Response(
             {
@@ -211,16 +195,7 @@ class AuthViewSet(viewsets.ViewSet):
             status=HTTP_200_OK,
         )
 
-        response.set_cookie(
-            key="refresh_token",
-            value=refresh_token,
-            httponly=True,
-            secure=True,
-            samesite="None",
-            path="/api/v1.1/user/accounts/auth/refresh/"
-        )
-
-        return response
+        return set_refresh_cookie(response, refresh_token)
 
     @action(detail=False, methods=['POST'], url_path='send-otp')
     def otp_send(self, request):
