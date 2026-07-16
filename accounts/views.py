@@ -35,7 +35,7 @@ def set_refresh_cookie(response, refresh_token):
         "secure": settings.DEBUG,
         "samesite":"None", #"Lax" if settings.DEBUG else "None",
         "path": "/",  # CHANGE: Use "/" instead of specific path
-        "max_age": 6 * 60,  # 1 day
+        "max_age": 7 * 24 * 60 * 60
     }
 
     # Only add domain in production
