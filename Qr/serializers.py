@@ -85,7 +85,12 @@ class QRCodeSummarySerializer(serializers.ModelSerializer):
 
     def get_design_data(self, obj):
         design = QRDesign.objects.filter(qr_code=obj).first()
-        return QRDesignSerializer(design).data if design else None
+        design_ser = QRDesignSerializer(design).data if design else None
+        if design_ser is not None:
+            design_ser = design_ser["design_data"]
+        return design_ser
+
+
 
 
 class QRCodeBundleSerializer(serializers.Serializer):
