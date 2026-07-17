@@ -72,7 +72,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
     serializer_class = ProjectSerializer
-    queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("name")
+    queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("-created_at")
 
     def get_search_fields(self):
         if self.action == "qrs":
@@ -193,7 +193,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
 
 class QRCodeViewSet(viewsets.ModelViewSet):
-    queryset = QRCode.objects.all().order_by("name")
+    queryset = QRCode.objects.all().order_by("-created_at")
     schema = ProjectSchema()
     serializer_class = QRCodeSerializer
     permission_classes = [IsAuthenticated]
