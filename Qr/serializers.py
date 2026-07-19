@@ -36,6 +36,8 @@ class QRCodeSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation["qr_type"] = StatusSummarySerializer(instance.qr_type).data
+        design_data = QRDesign.objects.filter(qr_code=instance).first()
+        representation['json_data'] = QRDesignSerializer(design_data).data
         return representation
 
 
