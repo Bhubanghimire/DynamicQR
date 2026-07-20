@@ -81,7 +81,7 @@ class QRCodeSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QRCode
-        fields = ["id", "name", "type", "created_at", "status", "domain_name","content_data", "design_data"]
+        fields = ["id", "name", "type", "project","created_at", "status", "domain_name","content_data", "design_data"]
 
     def get_domain_name(self, obj):
         scan_setting = QRScanSetting.objects.filter(qr_code=obj).first()
