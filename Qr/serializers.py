@@ -100,7 +100,6 @@ class QRCodeSummarySerializer(serializers.ModelSerializer):
 
 
 
-
 class QRCodeBundleSerializer(serializers.Serializer):
     QRCode = QRCodeSerializer(required=True)
     QRCodeData = QRCodeDataSerializer(required=False)

@@ -12,9 +12,9 @@ from analytics.services.geo_parser import GeoParser
 
 from analytics.services.visitor_service import VisitorService
 from analytics.services.scan_event_service import ScanEventService
-from analytics.services.qr_summary_service import QRSummaryService
-from analytics.services.analytics_time_service import AnalyticsTimeService
-from analytics.services.analytics_dimension_service import AnalyticsDimensionService
+# from analytics.services.qr_summary_service import QRSummaryService
+# from analytics.services.analytics_time_service import AnalyticsTimeService
+# from analytics.services.analytics_dimension_service import AnalyticsDimensionService
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +59,11 @@ class AnalyticsTracker:
 
                 ScanEventService(self.context).create()
 
-                QRSummaryService(self.context).update()
-
-                AnalyticsTimeService(self.context).update()
-
-                AnalyticsDimensionService(self.context).update()
+                # QRSummaryService(self.context).update()
+                #
+                # AnalyticsTimeService(self.context).update()
+                #
+                # AnalyticsDimensionService(self.context).update()
 
         except Exception:
 

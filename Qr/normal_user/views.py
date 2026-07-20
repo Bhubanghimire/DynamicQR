@@ -18,7 +18,7 @@ from Qr.serializers import (
     QRCodeSummarySerializer, TemplateDesignSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
-
+from analytics.task import track_scan
 
 class ProjectSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
@@ -201,8 +201,16 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["name", "qr_type__name"]
 
+    def _get_client_ip(self, request):
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+
+        if x_forwarded_for:
+            return x_forwarded_for.split(",")[0].strip()
+
+        return request.META.get("REMOTE_ADDR")
+
     def get_serializer_class(self):
-        if self.action == "preview":
+        if self.action in {"preview", "scan"}:
             return QRCodeSummarySerializer
         if self.action == "save_design":
             return QRDesignSerializer
@@ -269,6 +277,30 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(qr_code)
         return Response(
             {"data": serializer.data, "message": "QR preview fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["get"], url_path="scan")
+    def preview(self, request, *args, **kwargs):
+        qr_code = self.get_object()
+        request_data = {
+            "ip": self._get_client_ip(request),
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "referer": request.META.get("HTTP_REFERER", ""),
+            "language": request.META.get("HTTP_ACCEPT_LANGUAGE", ""),
+            "screen_width": request.query_params.get("sw"),
+            "screen_height": request.query_params.get("sh"),
+        }
+
+        # Queue analytics
+        track_scan.delay(
+            qr_id=qr_code.id,
+            request_data=request_data,
+        )
+
+        serializer = self.get_serializer(qr_code)
+        return Response(
+            {"data": serializer.data, "message": "QR Scan fetched successfully."},
             status=status.HTTP_200_OK,
         )
 
