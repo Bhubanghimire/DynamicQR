@@ -281,7 +281,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["get"], url_path="scan")
-    def preview(self, request, *args, **kwargs):
+    def scan(self, request, *args, **kwargs):
         qr_code = self.get_object()
         request_data = {
             "ip": self._get_client_ip(request),
