@@ -8,7 +8,7 @@ from system.models import ConfigChoice
 class StatusSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = ConfigChoice
-        fields = ["id", "name"]
+        fields = ["id", "name","image"]
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -73,7 +73,7 @@ class QRDesignSerializer(serializers.ModelSerializer):
 
 
 class QRCodeSummarySerializer(serializers.ModelSerializer):
-    type = serializers.CharField(source="qr_type.name", read_only=True)
+    # type = serializers.CharField(read_only=True)
     domain_name = serializers.SerializerMethodField()
     design_data = serializers.SerializerMethodField()
     content_data = serializers.SerializerMethodField()
@@ -81,7 +81,15 @@ class QRCodeSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QRCode
-        fields = ["id", "name", "type", "project","created_at", "status", "domain_name","content_data", "design_data"]
+        fields = ["id", "name", "qr_type", "project","created_at", "status", "domain_name","content_data", "design_data"]
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["qr_type"] = StatusSummarySerializer(instance.qr_type).data
+        # design_data = QRDesign.objects.filter(qr_code=instance).first()
+        # representation['json_data'] = QRDesignSerializer(design_data).data
+        return representation
+
 
     def get_domain_name(self, obj):
         scan_setting = QRScanSetting.objects.filter(qr_code=obj).first()
