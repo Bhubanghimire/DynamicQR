@@ -94,3 +94,41 @@ class SharePermissions(SoftDeletable):
     resource_id = models.UUIDField()
     content_object = GenericForeignKey('content_type', 'resource_id')
     role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
+
+
+class QrMedia(SoftDeletable):
+    qrcode = models.ForeignKey(QRCode, on_delete=models.CASCADE)
+    qr_code = models.OneToOneField(
+        QRCode,
+        on_delete=models.CASCADE,
+        related_name="video_content",
+    )
+
+    title = models.CharField(max_length=255, blank=True)
+
+    autoplay = models.BooleanField(default=False)
+    loop_playlist = models.BooleanField(default=False)
+    show_thumbnails = models.BooleanField(default=True)
+
+
+class MediaItem(SoftDeletable):
+        qr_media = models.ForeignKey(
+            QrMedia,
+            on_delete=models.CASCADE,
+            related_name="videos",
+        )
+        title = models.CharField(max_length=255)
+        description = models.TextField(blank=True)
+        video = models.FileField(upload_to="qr/videos/")
+        thumbnail = models.ImageField(
+            upload_to="qr/thumbs/",
+            blank=True,
+            null=True,
+        )
+        sort_order = models.PositiveIntegerField(default=1)
+        is_active = models.BooleanField(default=True)
+
+        class Meta:
+            ordering = ["sort_order"]
+
+

@@ -1,5 +1,6 @@
 from django.contrib import admin
-from  Qr.models import QRCode, Project, QRCodeData, QRDesign, QRSchedule, QRScanSetting
+from Qr.models import QRCode, Project, QRCodeData, QRDesign, QRSchedule, QRScanSetting, QrMedia, MediaItem
+
 
 # Register your models here.
 @admin.register(Project)
@@ -31,3 +32,12 @@ class QRScanSettingAdmin(admin.ModelAdmin):
 class QRDesignAdmin(admin.ModelAdmin):
     list_display = ['id', "qr_code", "created_at", "updated_at"]
 
+
+@admin.register(QrMedia)
+class QrMediaAdmin(admin.ModelAdmin):
+    list_display = ['id', "qr_code", "created_at", "updated_at"]
+
+
+@admin.register(MediaItem)
+class MediaItemAdmin(admin.ModelAdmin):
+    list_display = ['id', "qr_media", "created_at", "updated_at"]

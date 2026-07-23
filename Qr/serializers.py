@@ -213,3 +213,26 @@ class TemplateDesignSerializer(serializers.ModelSerializer):
     class Meta:
         model = TemplateDesign
         exclude = ["is_deleted", "deleted_at"]
+
+
+
+
+class VideoUploadSerializer(serializers.Serializer):
+    playlist_id = serializers.UUIDField(required=False)
+
+    qr_code = serializers.UUIDField(required=False)
+
+    playlist_title = serializers.CharField(required=False, allow_blank=True)
+    video_description = serializers.CharField(required=False, allow_blank=True)
+
+    video_title = serializers.CharField(required=False, allow_blank=True)
+
+    video = serializers.FileField()
+    thumbnail = serializers.ImageField(required=False)
+
+    def validate(self, attrs):
+        if attrs.get("playlist_id") is None and attrs.get("qr_code") is None:
+            raise serializers.ValidationError(
+                "qr_code is required when creating a new playlist."
+            )
+        return attrs

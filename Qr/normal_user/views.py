@@ -1,13 +1,15 @@
+from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter
+from rest_framework.parsers import FormParser, MultiPartParser
 from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from accounts.authentication import JWTAuthentication
-from django.db.models import Count, Q
-from Qr.models import Project, QRCode, TemplateDesign
+from django.db.models import Count, Q, Max
+from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -15,7 +17,7 @@ from Qr.serializers import (
     QRCodeSerializer,
     QRCodeBundleSerializer,
     QRDesignSerializer,
-    QRCodeSummarySerializer, TemplateDesignSerializer,
+    QRCodeSummarySerializer, TemplateDesignSerializer, VideoUploadSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -25,6 +27,7 @@ class ProjectSchema(PaginatedAutoSchema):
         tag_by_basename = {
             "project": "Projects",
             "Qr": "QR Codes",
+            "video": "QR Codes",
             "template_design": "Templates",
         }
         return [tag_by_basename.get(getattr(self.view, "basename", None), "Qr")]
@@ -41,16 +44,29 @@ class ProjectSchema(PaginatedAutoSchema):
             return "Detach a QR code from the project. URL path parameter `pk` is the project id and request body field `qr_id` is the QR code id."
         if action == "qrs":
             return "List QR codes attached to a project. URL path parameter `pk` is the project id."
+        if action == "upload":
+            return "Create a QR playlist when `qr_code` is provided, or reuse an existing playlist when `playlist_id` is provided, then upload one video to that playlist. The `video_description` field is saved on the media item."
         return super().get_description(path, method)
 
     def get_request_serializer(self, path, method):
         action = getattr(self.view, "action", None)
         if action in {"add_qr", "remove_qr"}:
             return ProjectQRActionSerializer()
+        if action == "upload":
+            return VideoUploadSerializer()
         return super().get_request_serializer(path, method)
 
     def get_request_body(self, path, method):
         action = getattr(self.view, "action", None)
+        if action == "upload":
+            self.request_media_types = ["multipart/form-data"]
+            serializer = self.get_request_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, VideoUploadSerializer) else {}
+            return {
+                "content": {
+                    "multipart/form-data": {"schema": item_schema}
+                }
+            }
         if action == "remove_qr":
             self.request_media_types = self.map_parsers(path, "POST")
             serializer = self.get_request_serializer(path, method)
@@ -361,4 +377,84 @@ class TemplateViewSet(viewsets.ModelViewSet):
         return Response(
             {"data": {}, "message": "Template deleted successfully."},
             status=status.HTTP_200_OK,
+        )
+
+
+class VideoViewSet(viewsets.ViewSet):
+    schema = ProjectSchema()
+    parser_classes = [MultiPartParser, FormParser]
+
+    @transaction.atomic
+    @action(detail=False, methods=["post"], url_path="upload")
+    def upload(self, request):
+        serializer = VideoUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+
+        playlist_id = data.get("playlist_id")
+
+        # ----------------------------------------
+        # Existing Playlist
+        # ----------------------------------------
+        if playlist_id:
+            try:
+                playlist = QrMedia.objects.get(pk=playlist_id)
+            except QrMedia.DoesNotExist:
+                return Response(
+                    {"message": "Playlist not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            created_playlist = False
+
+        # ----------------------------------------
+        # Create Playlist
+        # ----------------------------------------
+        else:
+            qr = QRCode.objects.get(pk=data["qr_code"])
+
+            playlist = QrMedia.objects.create(
+                qrcode=qr,
+                qr_code=qr,
+                title=data.get("playlist_title", ""),
+            )
+
+            created_playlist = True
+
+        # ----------------------------------------
+        # Sort Order
+        # ----------------------------------------
+
+        max_order = playlist.videos.aggregate(max_order=Max("sort_order")).get("max_order") or 0
+
+        # ----------------------------------------
+        # Save Video
+        # ----------------------------------------
+
+        video = MediaItem.objects.create(
+            qr_media=playlist,
+            title=data.get("video_title", ""),
+            description=data.get("video_description", ""),
+            video=data["video"],
+            thumbnail=data.get("thumbnail"),
+            sort_order=max_order + 1,
+        )
+
+        return Response(
+            {
+                "data": {
+                    "playlist_id": playlist.id,
+                    "video_id": video.id,
+                    "file_path":str(video.video.url),
+                    "created_playlist": created_playlist,
+                    "video_count": playlist.videos.count(),
+                },
+                "message": (
+                    "Playlist created successfully."
+                    if created_playlist
+                    else "Video uploaded successfully."
+                ),
+            },
+            status=status.HTTP_201_CREATED,
         )
