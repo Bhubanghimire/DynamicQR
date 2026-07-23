@@ -3,7 +3,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
@@ -17,7 +17,7 @@ from Qr.serializers import (
     QRCodeSerializer,
     QRCodeBundleSerializer,
     QRDesignSerializer,
-    QRCodeSummarySerializer, TemplateDesignSerializer, VideoUploadSerializer,
+    QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -46,6 +46,8 @@ class ProjectSchema(PaginatedAutoSchema):
             return "List QR codes attached to a project. URL path parameter `pk` is the project id."
         if action == "upload":
             return "Create a QR playlist when `qr_code` is provided, or reuse an existing playlist when `playlist_id` is provided, then upload one video to that playlist. The `video_description` field is saved on the media item."
+        if action == "delete_video":
+            return "Delete a video media item by its UUID."
         return super().get_description(path, method)
 
     def get_request_serializer(self, path, method):
@@ -54,6 +56,8 @@ class ProjectSchema(PaginatedAutoSchema):
             return ProjectQRActionSerializer()
         if action == "upload":
             return VideoUploadSerializer()
+        if action == "delete_video":
+            return VideoDeleteSerializer()
         return super().get_request_serializer(path, method)
 
     def get_request_body(self, path, method):
@@ -65,6 +69,27 @@ class ProjectSchema(PaginatedAutoSchema):
             return {
                 "content": {
                     "multipart/form-data": {"schema": item_schema}
+                }
+            }
+        if action == "delete_video":
+            return {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "description": "ID of the media item to delete.",
+                                }
+                            },
+                            "required": ["id"],
+                            "example": {
+                                "id": "3f5f1a2e-5c1d-4c5b-9dd5-9b4f7f1d2c10"
+                            },
+                        }
+                    }
                 }
             }
         if action == "remove_qr":
@@ -382,7 +407,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
 class VideoViewSet(viewsets.ViewSet):
     schema = ProjectSchema()
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     @transaction.atomic
     @action(detail=False, methods=["post"], url_path="upload")
@@ -457,4 +482,24 @@ class VideoViewSet(viewsets.ViewSet):
                 ),
             },
             status=status.HTTP_201_CREATED,
+        )
+
+    @transaction.atomic
+    @action(detail=False, methods=["delete"], url_path="delete-video")
+    def delete_video(self, request):
+        serializer = VideoDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            media_item = MediaItem.objects.get(pk=serializer.validated_data["id"])
+        except MediaItem.DoesNotExist:
+            return Response(
+                {"data": {}, "message": "Video media item not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        media_item.delete()
+        return Response(
+            {"data": {"id": str(media_item.id)}, "message": "Video media item deleted successfully."},
+            status=status.HTTP_200_OK,
         )

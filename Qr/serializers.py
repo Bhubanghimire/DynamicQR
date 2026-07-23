@@ -236,3 +236,7 @@ class VideoUploadSerializer(serializers.Serializer):
                 "qr_code is required when creating a new playlist."
             )
         return attrs
+
+
+class VideoDeleteSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the media item to delete.")
