@@ -277,7 +277,7 @@ class TemplateDesignSerializer(serializers.ModelSerializer):
 
 
 class VideoUploadSerializer(serializers.Serializer):
-    playlist_id = serializers.UUIDField(required=False)
+    # playlist_id = serializers.UUIDField(required=False)
 
     qr_code = serializers.UUIDField(required=False)
 

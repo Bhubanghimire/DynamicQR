@@ -417,26 +417,22 @@ class VideoViewSet(viewsets.ViewSet):
 
         data = serializer.validated_data
 
-        playlist_id = data.get("playlist_id")
+        # playlist_id = data.get("playlist_id")
 
         # ----------------------------------------
         # Existing Playlist
         # ----------------------------------------
-        if playlist_id:
-            try:
-                playlist = QrMedia.objects.get(pk=playlist_id)
-            except QrMedia.DoesNotExist:
-                return Response(
-                    {"message": "Playlist not found."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
+        try:
+            playlist = QrMedia.objects.get(qr_code__id=data.get("qr_code"))
             created_playlist = False
+        except QrMedia.DoesNotExist:
+            created_playlist = True
+
 
         # ----------------------------------------
         # Create Playlist
         # ----------------------------------------
-        else:
+        if created_playlist:
             qr = QRCode.objects.get(pk=data["qr_code"])
 
             playlist = QrMedia.objects.create(
