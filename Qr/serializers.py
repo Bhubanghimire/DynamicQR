@@ -1,7 +1,17 @@
 from django.db import transaction
 from rest_framework import serializers
 
-from Qr.models import Project, QRCode, QRCodeData, QRDesign, QRSchedule, QRScanSetting, TemplateDesign
+from Qr.models import (
+    Project,
+    QRCode,
+    QRCodeData,
+    QRDesign,
+    QRSchedule,
+    QRScanSetting,
+    TemplateDesign,
+    QrMedia,
+    MediaItem,
+)
 from system.models import ConfigChoice
 
 
@@ -59,6 +69,20 @@ class QRScanSettingSerializer(serializers.ModelSerializer):
         exclude = ["is_deleted", "deleted_at", "qr_code"]
 
 
+class MediaItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MediaItem
+        exclude = ["is_deleted", "deleted_at", "qr_media"]
+
+
+class QrMediaSerializer(serializers.ModelSerializer):
+    videos = MediaItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QrMedia
+        exclude = ["is_deleted", "deleted_at", "qrcode", "qr_code"]
+
+
 class QRDesignSerializer(serializers.ModelSerializer):
     class Meta:
         model = QRDesign
@@ -113,6 +137,7 @@ class QRCodeBundleSerializer(serializers.Serializer):
     QRCodeData = QRCodeDataSerializer(required=False)
     QRSchedule = QRScheduleSerializer(required=False)
     QRScanSetting = QRScanSettingSerializer(required=False)
+    QrMedia = QrMediaSerializer(required=False)
 
     def to_internal_value(self, data):
         data = data.copy()
@@ -121,6 +146,7 @@ class QRCodeBundleSerializer(serializers.Serializer):
             "qr_code_data": "QRCodeData",
             "qr_schedule": "QRSchedule",
             "qr_scan_setting": "QRScanSetting",
+            "qr_media": "QrMedia",
         }
         for alias, field in aliases.items():
             if alias in data and field not in data:
@@ -132,6 +158,7 @@ class QRCodeBundleSerializer(serializers.Serializer):
         qr_code_data = validated_data.pop("QRCodeData", None)
         qr_schedule_data = validated_data.pop("QRSchedule", None)
         qr_scan_setting_data = validated_data.pop("QRScanSetting", None)
+        qr_media_data = validated_data.pop("QrMedia", None)
 
         qr_code = QRCode.objects.create(**validated_data["QRCode"])
         if qr_code_data is not None:
@@ -140,6 +167,11 @@ class QRCodeBundleSerializer(serializers.Serializer):
             QRSchedule.objects.create(qr_code=qr_code, **qr_schedule_data)
         if qr_scan_setting_data is not None:
             QRScanSetting.objects.create(qr_code=qr_code, **qr_scan_setting_data)
+        if qr_media_data is not None:
+            videos_data = qr_media_data.pop("videos", [])
+            qr_media = QrMedia.objects.create(qrcode=qr_code, qr_code=qr_code, **qr_media_data)
+            for video_data in videos_data:
+                MediaItem.objects.create(qr_media=qr_media, **video_data)
         return qr_code
 
     @transaction.atomic
@@ -147,6 +179,7 @@ class QRCodeBundleSerializer(serializers.Serializer):
         qr_code_data = validated_data.pop("QRCodeData", None)
         qr_schedule_data = validated_data.pop("QRSchedule", None)
         qr_scan_setting_data = validated_data.pop("QRScanSetting", None)
+        qr_media_data = validated_data.pop("QrMedia", None)
 
         for attr, value in validated_data.get("QRCode", {}).items():
             setattr(instance, attr, value)
@@ -158,6 +191,8 @@ class QRCodeBundleSerializer(serializers.Serializer):
             self._update_or_create_related(QRSchedule, instance, qr_schedule_data)
         if qr_scan_setting_data is not None:
             self._update_or_create_related(QRScanSetting, instance, qr_scan_setting_data)
+        if qr_media_data is not None:
+            self._update_or_create_qr_media(instance, qr_media_data)
         return instance
 
     def _update_or_create_related(self, model, qr_code, data):
@@ -170,17 +205,39 @@ class QRCodeBundleSerializer(serializers.Serializer):
         related.save()
         return related
 
+    def _update_or_create_qr_media(self, qr_code, data):
+        videos_data = data.pop("videos", None)
+        related = QrMedia.objects.filter(qr_code=qr_code).first()
+        if related is None:
+            related = QrMedia.objects.create(qrcode=qr_code, qr_code=qr_code, **data)
+        else:
+            for attr, value in data.items():
+                setattr(related, attr, value)
+            related.save()
+
+        if videos_data is not None:
+            related.videos.all().delete()
+            for index, video_data in enumerate(videos_data, start=1):
+                MediaItem.objects.create(
+                    qr_media=related,
+                    sort_order=video_data.get("sort_order", index),
+                    **{k: v for k, v in video_data.items() if k != "sort_order"},
+                )
+        return related
+
     def to_representation(self, instance):
         data = {
             "QRCode": QRCodeSerializer(instance, context=self.context).data,
             "QRCodeData": None,
             "QRSchedule": None,
             "QRScanSetting": None,
+            "QrMedia": None,
         }
 
         qr_code_data = QRCodeData.objects.filter(qr_code=instance).first()
         qr_schedule = QRSchedule.objects.filter(qr_code=instance).first()
         qr_scan_setting = QRScanSetting.objects.filter(qr_code=instance).first()
+        qr_media = QrMedia.objects.filter(qr_code=instance).first()
 
         if qr_code_data:
             data["QRCodeData"] = QRCodeDataSerializer(qr_code_data).data
@@ -188,6 +245,8 @@ class QRCodeBundleSerializer(serializers.Serializer):
             data["QRSchedule"] = QRScheduleSerializer(qr_schedule).data
         if qr_scan_setting:
             data["QRScanSetting"] = QRScanSettingSerializer(qr_scan_setting).data
+        if qr_media:
+            data["QrMedia"] = QrMediaSerializer(qr_media).data
         return data
 
 

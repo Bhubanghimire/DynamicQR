@@ -20,7 +20,7 @@ class Project(SoftDeletable):
 
 class QRCode(SoftDeletable):
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True)
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, null=True, blank=True)
     qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_type')
     status = models.BooleanField(default=True)
     created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
