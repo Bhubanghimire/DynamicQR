@@ -297,5 +297,14 @@ class VideoUploadSerializer(serializers.Serializer):
         return attrs
 
 
+class VideoUpdateSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    video = serializers.FileField(required=False)
+    thumbnail = serializers.ImageField(required=False, allow_null=True)
+    sort_order = serializers.IntegerField(required=False, min_value=1)
+    is_active = serializers.BooleanField(required=False)
+
+
 class VideoDeleteSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the media item to delete.")

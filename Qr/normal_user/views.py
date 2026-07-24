@@ -18,6 +18,7 @@ from Qr.serializers import (
     QRCodeBundleSerializer,
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
+    VideoUpdateSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -46,6 +47,8 @@ class ProjectSchema(PaginatedAutoSchema):
             return "List QR codes attached to a project. URL path parameter `pk` is the project id."
         if action == "upload":
             return "Create a QR playlist when `qr_code` is provided, or reuse an existing playlist when `playlist_id` is provided, then upload one video to that playlist. The `video_description` field is saved on the media item."
+        if action in {"update", "partial_update"} and getattr(self.view, "basename", None) == "video":
+            return "Update a video media item. If `video` is included, the old file is replaced and deleted from storage. If `video` is omitted, only the other fields are updated."
         if action == "delete_video":
             return "Delete a video media item by its UUID."
         return super().get_description(path, method)
@@ -56,6 +59,8 @@ class ProjectSchema(PaginatedAutoSchema):
             return ProjectQRActionSerializer()
         if action == "upload":
             return VideoUploadSerializer()
+        if action in {"update", "partial_update"} and getattr(self.view, "basename", None) == "video":
+            return VideoUpdateSerializer()
         if action == "delete_video":
             return VideoDeleteSerializer()
         return super().get_request_serializer(path, method)
@@ -69,6 +74,16 @@ class ProjectSchema(PaginatedAutoSchema):
             return {
                 "content": {
                     "multipart/form-data": {"schema": item_schema}
+                }
+            }
+        if action in {"update", "partial_update"} and getattr(self.view, "basename", None) == "video":
+            self.request_media_types = ["multipart/form-data", "application/json"]
+            serializer = self.get_request_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, VideoUpdateSerializer) else {}
+            return {
+                "content": {
+                    ct: {"schema": item_schema}
+                    for ct in self.request_media_types
                 }
             }
         if action == "delete_video":
@@ -499,3 +514,59 @@ class VideoViewSet(viewsets.ViewSet):
             {"data": {"id": str(media_item.id)}, "message": "Video media item deleted successfully."},
             status=status.HTTP_200_OK,
         )
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        try:
+            media_item = MediaItem.objects.select_related("qr_media").get(pk=kwargs.get("pk"))
+        except MediaItem.DoesNotExist:
+            return Response(
+                {"data": {}, "message": "Video media item not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = VideoUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        for field in ["title", "description", "sort_order", "is_active"]:
+            if field in data:
+                setattr(media_item, field, data[field])
+
+        thumbnail_file = request.FILES.get("thumbnail")
+        if thumbnail_file is not None:
+            old_thumbnail = media_item.thumbnail
+            media_item.thumbnail = thumbnail_file
+            media_item.save()
+            if old_thumbnail and old_thumbnail.name and old_thumbnail.name != media_item.thumbnail.name:
+                old_thumbnail.storage.delete(old_thumbnail.name)
+        else:
+            media_item.save()
+
+        video_file = request.FILES.get("video")
+        if video_file is not None:
+            old_video = media_item.video
+            media_item.video = video_file
+            media_item.save()
+            if old_video and old_video.name and old_video.name != media_item.video.name:
+                old_video.storage.delete(old_video.name)
+        else:
+            media_item.save()
+
+        return Response(
+            {
+                "data": {
+                    "id": str(media_item.id),
+                    "playlist_id": str(media_item.qr_media_id),
+                    "video_id": str(media_item.id),
+                    "file_path": str(media_item.video.url) if media_item.video else None,
+                },
+                "message": "Video media item updated successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
