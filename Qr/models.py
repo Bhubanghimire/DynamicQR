@@ -36,7 +36,7 @@ class QRSchedule(SoftDeletable):
     name = models.CharField(max_length=200, null=True, blank=True)
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
-    timezone = models.CharField(max_length=100)
+    # timezone = models.CharField(max_length=100, null=True, blank=True)
     is_scheduled = models.BooleanField(default=False)
 
 
