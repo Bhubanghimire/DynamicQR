@@ -34,8 +34,8 @@ class QRCodeData(SoftDeletable):
 class QRSchedule(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
     name = models.CharField(max_length=200, null=True, blank=True)
-    start_date = models.DateTimeField()
-    end_date = models.DateTimeField()
+    start_date = models.DateTimeField(null=True, blank=True)
+    end_date = models.DateTimeField(null=True, blank=True)
     timezone = models.CharField(max_length=100)
     is_scheduled = models.BooleanField(default=False)
 
