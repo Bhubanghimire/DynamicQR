@@ -257,7 +257,7 @@ class ProjectDetailSerializer(ProjectSerializer):
         pass
 
     def get_qrcodes(self, obj):
-        qrcodes = QRCode.objects.filter(project=obj)
+        qrcodes = QRCode.objects.filter(project=obj, created_by=obj.owner)
         return QRCodeSerializer(qrcodes, many=True).data
 
 

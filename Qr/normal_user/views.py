@@ -1,7 +1,7 @@
 from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from DynamicOCR.schemas import PaginatedAutoSchema
@@ -64,6 +64,12 @@ class ProjectSchema(PaginatedAutoSchema):
         if action == "delete_video":
             return VideoDeleteSerializer()
         return super().get_request_serializer(path, method)
+
+    def get_response_serializer(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action == "scan":
+            return QRCodeBundleSerializer()
+        return super().get_response_serializer(path, method)
 
     def get_request_body(self, path, method):
         action = getattr(self.view, "action", None)
@@ -129,6 +135,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "description"]
     serializer_class = ProjectSerializer
     queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("-created_at")
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(owner=self.request.user)
 
     def get_search_fields(self):
         if self.action == "qrs":
@@ -257,6 +267,17 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["name", "qr_type__name"]
 
+    def get_permissions(self):
+        if self.action == "scan":
+            return [AllowAny()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action == "scan":
+            return queryset
+        return queryset.filter(created_by=self.request.user)
+
     def _get_client_ip(self, request):
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
 
@@ -349,7 +370,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         }
 
         # Queue analytics
-        track_scan.delay(
+        # track_scan.delay(
+        #     qr_id=qr_code.id,
+        #     request_data=request_data,
+        # )
+        track_scan(
             qr_id=qr_code.id,
             request_data=request_data,
         )

@@ -1,10 +1,15 @@
 # analytics/services/geo_parser.py
-import traceback
+import ipaddress
+import logging
 
 import geoip2.database
+from geoip2.errors import AddressNotFoundError
 from django.conf import settings
 
 from analytics.dto import ScanContext
+
+
+logger = logging.getLogger(__name__)
 
 
 class GeoParser:
@@ -29,8 +34,26 @@ class GeoParser:
     def parse(self):
 
         ip = self.context.ip_address
-        print("this is ip", ip)
         if not ip:
+            self._set_default_geo_context()
+            return
+
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+        except ValueError:
+            self._set_default_geo_context()
+            return
+
+        if any(
+            [
+                ip_obj.is_loopback,
+                ip_obj.is_private,
+                ip_obj.is_reserved,
+                ip_obj.is_multicast,
+                ip_obj.is_unspecified,
+            ]
+        ):
+            self._set_default_geo_context()
             return
 
         try:
@@ -67,14 +90,16 @@ class GeoParser:
                 response.location.longitude
             )
 
+        except AddressNotFoundError:
+            self._set_default_geo_context()
         except Exception:
-            """
-            Ignore lookup failures.
+            logger.exception("Unexpected GeoIP lookup failure for IP %s", ip)
 
-            Analytics should never fail because
-            GeoIP failed.
-            """
-            print("error ")
-            print("=" * 80)
-            traceback.print_exc()
-            print("=" * 80)
+    def _set_default_geo_context(self):
+        self.context.country = ""
+        self.context.country_code = ""
+        self.context.region = ""
+        self.context.city = ""
+        self.context.timezone = ""
+        self.context.latitude = None
+        self.context.longitude = None
