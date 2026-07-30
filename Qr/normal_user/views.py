@@ -287,11 +287,13 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         return request.META.get("REMOTE_ADDR")
 
     def get_serializer_class(self):
-        if self.action in {"preview", "scan"}:
+        if self.action == "preview":
             return QRCodeSummarySerializer
+        # if self.action == "scan":
+        #     return QRCodeBundleSerializer
         if self.action == "save_design":
             return QRDesignSerializer
-        if self.action in {"create", "update", "partial_update", "retrieve"}:
+        if self.action in {"create","scan", "update", "partial_update", "retrieve"}:
             return QRCodeBundleSerializer
         return super().get_serializer_class()
 
