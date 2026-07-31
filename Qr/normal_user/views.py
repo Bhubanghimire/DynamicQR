@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from accounts.authentication import JWTAuthentication
 from django.db.models import Count, Q, Max
-from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem
+from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -344,10 +344,21 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     def save_design(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        qr_code = serializer.validated_data.get("qr_code")
+        design = QRDesign.objects.filter(qr_code=qr_code).first()
+        is_update = design is not None
+
+        if design is not None:
+            serializer = self.get_serializer(design, data=request.data)
+        else:
+            serializer = self.get_serializer(data=request.data)
+
+        serializer.is_valid(raise_exception=True)
         design = serializer.save()
         return Response(
             {"data": self.get_serializer(design).data, "message": "QR design saved successfully."},
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK if is_update else status.HTTP_201_CREATED,
         )
 
     @action(detail=True, methods=["get"], url_path="preview")
