@@ -43,6 +43,20 @@ class QRCodeSerializer(serializers.ModelSerializer):
         model = QRCode
         exclude = ["is_deleted", "deleted_at"]
 
+    def validate_link_name(self, value):
+        if value in (None, ""):
+            return value
+
+        queryset = QRCode.objects.filter(link_name=value)
+        instance = getattr(self, "instance", None)
+        if instance is not None:
+            queryset = queryset.exclude(pk=instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError("A QR code with this link name already exists.")
+
+        return value
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation["qr_type"] = StatusSummarySerializer(instance.qr_type).data

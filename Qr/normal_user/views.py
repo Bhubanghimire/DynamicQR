@@ -1,9 +1,11 @@
 from django.db import transaction
+from uuid import UUID
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.exceptions import NotFound
 from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
@@ -286,6 +288,24 @@ class QRCodeViewSet(viewsets.ModelViewSet):
 
         return request.META.get("REMOTE_ADDR")
 
+    def _get_qr_by_identifier(self, identifier):
+        if identifier in (None, ""):
+            raise NotFound()
+
+        qr = QRCode.objects.filter(link_name=identifier).first()
+        if qr is not None:
+            return qr
+
+        try:
+            UUID(str(identifier))
+        except (TypeError, ValueError):
+            raise NotFound()
+
+        qr = QRCode.objects.filter(pk=identifier).first()
+        if qr is None:
+            raise NotFound()
+        return qr
+
     def get_serializer_class(self):
         if self.action == "preview":
             return QRCodeSummarySerializer
@@ -372,7 +392,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="scan")
     def scan(self, request, *args, **kwargs):
-        qr_code = self.get_object()
+        try:
+            qr_code = self._get_qr_by_identifier(kwargs.get("pk"))
+        except QRCode.DoesNotExist:
+            raise NotFound()
         request_data = {
             "ip": self._get_client_ip(request),
             "user_agent": request.META.get("HTTP_USER_AGENT", ""),
