@@ -119,7 +119,19 @@ class QRCodeSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QRCode
-        fields = ["id", "name", "qr_type", "project","created_at", "status", "domain_name","content_data", "design_data"]
+        fields = [
+            "id",
+            "short_code",
+            "link_name",
+            "name",
+            "qr_type",
+            "project",
+            "created_at",
+            "status",
+            "domain_name",
+            "content_data",
+            "design_data",
+        ]
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

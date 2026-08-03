@@ -292,6 +292,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         if identifier in (None, ""):
             raise NotFound()
 
+        qr = QRCode.objects.filter(short_code=identifier).first()
+        if qr is not None:
+            return qr
+
         qr = QRCode.objects.filter(link_name=identifier).first()
         if qr is not None:
             return qr

@@ -1,6 +1,8 @@
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+import secrets
+import string
 #from pytz import timezone
 
 from accounts.views import User
@@ -19,12 +21,26 @@ class Project(SoftDeletable):
     
 
 class QRCode(SoftDeletable):
+    SHORT_CODE_LENGTH = 10
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True)
     name = models.CharField(max_length=200, null=True, blank=True)
+    short_code = models.CharField(max_length=32, null=True, blank=True, unique=True, db_index=True, editable=False)
     link_name = models.CharField(max_length=200, null=True, blank=True, unique=True, db_index=True)
     qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_type')
     status = models.BooleanField(default=True)
     created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
+
+    def save(self, *args, **kwargs):
+        if not self.short_code:
+            while True:
+                candidate = "".join(
+                    secrets.choice(string.ascii_letters + string.digits)
+                    for _ in range(self.SHORT_CODE_LENGTH)
+                )
+                if candidate and not QRCode.objects.filter(short_code=candidate).exists():
+                    self.short_code = candidate
+                    break
+        super().save(*args, **kwargs)
 
 
 class QRCodeData(SoftDeletable):
@@ -131,4 +147,3 @@ class MediaItem(SoftDeletable):
 
         class Meta:
             ordering = ["sort_order"]
-
