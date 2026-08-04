@@ -110,6 +110,39 @@ class QRAnalyticsSummaryService:
         }
 
     @classmethod
+    def weekdays(cls, qr_queryset, request):
+        period = request.query_params.get("period")
+        date_range = DashboardSummaryService._resolve_date_range(period, request)
+        qr_ids = qr_queryset.values_list("id", flat=True)
+
+        scan_events = ScanEvent.objects.filter(qr_id__in=qr_ids)
+        if date_range is not None:
+            scan_events = scan_events.filter(
+                scanned_at__date__gte=date_range.start_date,
+                scanned_at__date__lte=date_range.end_date,
+            )
+
+        aggregated_rows = (
+            scan_events.annotate(weekday=ExtractWeekDay("scanned_at"))
+            .values("weekday")
+            .annotate(total_scans=Count("id"))
+            .order_by("weekday")
+        )
+
+        rows_by_weekday = {
+            row["weekday"]: row["total_scans"] or 0
+            for row in aggregated_rows
+        }
+
+        return [
+            {
+                "weekday": WEEKDAY_NAMES[weekday],
+                "total_scans": rows_by_weekday.get(weekday, 0),
+            }
+            for weekday in range(1, 8)
+        ]
+
+    @classmethod
     def get_qr_information(cls, qr):
         if qr is None:
             return None

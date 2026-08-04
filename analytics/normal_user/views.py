@@ -309,11 +309,11 @@ class QRAnalyticsViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=["get"])
     def weekdays(self, request):
         qr_queryset = self.get_qr_queryset()
-
-        # TODO: Weekday Analytics Service
+        data = QRAnalyticsSummaryService.weekdays(qr_queryset=qr_queryset, request=request)
 
         return Response(
             {
+                "data": data,
                 "message": "Weekday analytics fetched successfully."
             },
             status=status.HTTP_200_OK,
