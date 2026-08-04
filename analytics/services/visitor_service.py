@@ -44,3 +44,5 @@ class VisitorService:
             visitor.refresh_from_db()
 
         self.context.visitor = visitor
+
+        return visitor

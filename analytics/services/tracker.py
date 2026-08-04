@@ -1,6 +1,7 @@
 # analytics/services/tracker.py
 
 import logging
+from datetime import datetime
 
 from django.db import transaction
 
@@ -12,9 +13,9 @@ from analytics.services.geo_parser import GeoParser
 
 from analytics.services.visitor_service import VisitorService
 from analytics.services.scan_event_service import ScanEventService
-# from analytics.services.qr_summary_service import QRSummaryService
-# from analytics.services.analytics_time_service import AnalyticsTimeService
-# from analytics.services.analytics_dimension_service import AnalyticsDimensionService
+from analytics.services.qr_summary_service import QRAnalyticsService
+from analytics.services.analytics_time_service import AnalyticsTimeService
+from analytics.services.analytics_dimension_service import AnalyticsDimensionService
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +58,12 @@ class AnalyticsTracker:
             #
             with transaction.atomic():
 
-                ScanEventService(self.context).create()
+                scan_event = ScanEventService(self.context).create()
+                self.context.scan_event = scan_event
 
-                # QRSummaryService(self.context).update()
-                #
-                # AnalyticsTimeService(self.context).update()
-                #
-                # AnalyticsDimensionService(self.context).update()
+                QRAnalyticsService(self.context).update()
+                AnalyticsTimeService(self.context).update()
+                AnalyticsDimensionService(self.context).update()
 
         except Exception:
 

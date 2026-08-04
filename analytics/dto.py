@@ -51,5 +51,7 @@ class ScanContext:
     fingerprint: str = ""
     is_unique_scan: bool = False
 
-    #scan event
+    # Analytics
     scan_event: Optional[ScanEvent] = None
+    scan_date = None
+    scan_hour = None
