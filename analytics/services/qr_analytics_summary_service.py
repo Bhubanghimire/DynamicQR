@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db.models import Avg, Count, Max, Sum, Min
+from django.db.models import Avg, Count, Max, Sum, Min, Case, When, IntegerField, Value
 from django.db.models.functions import Coalesce, ExtractHour, ExtractWeekDay, TruncDate
 
 from analytics.models import AnalyticsTime, QRAnalytics, ScanEvent
@@ -140,6 +140,52 @@ class QRAnalyticsSummaryService:
                 "total_scans": rows_by_weekday.get(weekday, 0),
             }
             for weekday in range(1, 8)
+        ]
+
+    @classmethod
+    def hours(cls, qr_queryset, request):
+        period = request.query_params.get("period")
+        date_range = DashboardSummaryService._resolve_date_range(period, request)
+        qr_ids = qr_queryset.values_list("id", flat=True)
+
+        scan_events = ScanEvent.objects.filter(qr_id__in=qr_ids)
+        if date_range is not None:
+            scan_events = scan_events.filter(
+                scanned_at__date__gte=date_range.start_date,
+                scanned_at__date__lte=date_range.end_date,
+            )
+
+        aggregated_rows = (
+            scan_events.annotate(hour=ExtractHour("scanned_at"))
+            .annotate(
+                hour_bucket=Case(
+                    When(hour__lt=4, then=Value(0)),
+                    When(hour__lt=8, then=Value(4)),
+                    When(hour__lt=12, then=Value(8)),
+                    When(hour__lt=16, then=Value(12)),
+                    When(hour__lt=20, then=Value(16)),
+                    default=Value(20),
+                    output_field=IntegerField(),
+                )
+            )
+            .values("hour_bucket")
+            .annotate(total_scans=Count("id"))
+            .order_by("hour_bucket")
+        )
+
+        rows_by_hour = {
+            row["hour_bucket"]: row["total_scans"] or 0
+            for row in aggregated_rows
+        }
+
+        hour_buckets = list(range(0, 24, 4))
+        return [
+            {
+                "hour": hour,
+                "label": f"{hour:02d}:00-{hour + 4:02d}:00",
+                "total_scans": rows_by_hour.get(hour, 0),
+            }
+            for hour in hour_buckets
         ]
 
     @classmethod

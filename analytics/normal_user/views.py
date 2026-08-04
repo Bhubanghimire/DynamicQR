@@ -322,11 +322,11 @@ class QRAnalyticsViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=["get"])
     def hours(self, request):
         qr_queryset = self.get_qr_queryset()
-
-        # TODO: Hourly Analytics Service
+        data = QRAnalyticsSummaryService.hours(qr_queryset=qr_queryset, request=request)
 
         return Response(
             {
+                "data": data,
                 "message": "Hourly analytics fetched successfully."
             },
             status=status.HTTP_200_OK,
