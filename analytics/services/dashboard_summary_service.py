@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 
-from django.db.models import Avg, Max, Sum
+from django.db.models import Avg, Max, Min, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -56,6 +56,74 @@ class DashboardSummaryService:
             "unique_scans": summary["unique_scans"] or 0,
             "busiest_day": busiest_day,
             "average_daily_scans": average_daily_scans,
+        }
+
+    @classmethod
+    def timeline(cls, user, request):
+        qr_queryset = cls._get_qr_queryset(user=user, request=request)
+        qr_ids = qr_queryset.values_list("id", flat=True)
+
+        period = request.query_params.get("period")
+        date_range = cls._resolve_date_range(period, request)
+
+        if date_range is None:
+            bounds = cls._daily_queryset(qr_ids, None, None).aggregate(
+                start_date=Min("date"),
+                end_date=Max("date"),
+            )
+            if not bounds["start_date"] or not bounds["end_date"]:
+                return {
+                    "period": period,
+                    "timeline": [],
+                }
+            date_range = DateRange(
+                start_date=bounds["start_date"],
+                end_date=bounds["end_date"],
+            )
+
+        if date_range.start_date is None or date_range.end_date is None:
+            return {
+                "period": period,
+                "timeline": [],
+            }
+
+        daily_rows = cls._daily_queryset(qr_ids, date_range.start_date, date_range.end_date)
+        aggregated_rows = (
+            daily_rows.values("date")
+            .annotate(
+                total_scans=Coalesce(Sum("total_scans"), 0),
+                unique_scans=Coalesce(Sum("unique_scans"), 0),
+            )
+            .order_by("date")
+        )
+
+        rows_by_date = {
+            row["date"]: {
+                "date": row["date"],
+                "total_scans": row["total_scans"] or 0,
+                "unique_scans": row["unique_scans"] or 0,
+            }
+            for row in aggregated_rows
+        }
+
+        timeline = []
+        current_date = date_range.start_date
+        while current_date <= date_range.end_date:
+            timeline.append(
+                rows_by_date.get(
+                    current_date,
+                    {
+                        "date": current_date,
+                        "total_scans": 0,
+                        "unique_scans": 0,
+                    },
+                )
+            )
+            current_date += timedelta(days=1)
+
+        return {
+            "period": period,
+            "timeline": timeline,
         }
 
     @classmethod

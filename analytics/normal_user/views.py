@@ -24,7 +24,7 @@ class AnalyticsSchema(PaginatedAutoSchema):
     def get_operation(self, path, method):
         operation = super().get_operation(path, method)
 
-        if getattr(self.view, "action", None) != "summary" or method.upper() != "GET":
+        if getattr(self.view, "action", None) not in {"summary", "timeline"} or method.upper() != "GET":
             return operation
 
         parameters = operation.setdefault("parameters", [])
@@ -134,7 +134,17 @@ class AnalyticsDashboardViewSet(GenericViewSet):
 
     @action(detail=False, methods=["get"])
     def timeline(self, request):
-        ...
+        data = DashboardSummaryService.timeline(
+            user=request.user,
+            request=request,
+        )
+
+        return Response(
+            {
+                "data": data,
+                "message": "Timeline fetched successfully."
+            }
+        )
 
     @action(detail=False, methods=["get"])
     def qr_types(self, request):
