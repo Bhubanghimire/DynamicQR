@@ -18,12 +18,12 @@ from analytics.services.qr_analytics_summary_service import QRAnalyticsSummarySe
 
 class AnalyticsSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
-        if isinstance(self.view, QRAnalyticsViewSet):
+        if getattr(self.view, "basename", None) == "details":
             return ["QR Analytics"]
         return ["Dashboard Analytics"]
 
     def get_operation_id(self, path, method):
-        if isinstance(self.view, QRAnalyticsViewSet):
+        if getattr(self.view, "basename", None) == "details":
             return f"qr_analytics_{self.view.action}"
         return f"dashboard_analytics_{self.view.action}"
 
@@ -147,6 +147,8 @@ class AnalyticsDashboardViewSet(GenericViewSet):
 
     permission_classes = [IsAuthenticated]
     schema = AnalyticsSchema()
+    serializer_class = DashboardSummarySerializer
+    queryset = QRCode.objects.none()
 
     # permission_classes_by_action = {
     #         'list': [IsAuthenticated],
@@ -279,7 +281,7 @@ class QRAnalyticsViewSet(viewsets.GenericViewSet):
         return queryset
 
     @action(detail=False, methods=["get"])
-    def summary(self, request):
+    def detail_summary(self, request):
         qr_queryset = self.get_qr_queryset()
         data = QRAnalyticsSummaryService.execute(qr_queryset=qr_queryset, request=request)
 
@@ -292,13 +294,13 @@ class QRAnalyticsViewSet(viewsets.GenericViewSet):
         )
 
     @action(detail=False, methods=["get"])
-    def timeline(self, request):
+    def detail_timeline(self, request):
         qr_queryset = self.get_qr_queryset()
-
-        # TODO: Timeline Service
+        data = QRAnalyticsSummaryService.timeline(qr_queryset=qr_queryset, request=request)
 
         return Response(
             {
+                "data": data,
                 "message": "Timeline fetched successfully."
             },
             status=status.HTTP_200_OK,
