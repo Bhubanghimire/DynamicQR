@@ -162,7 +162,17 @@ class AnalyticsDashboardViewSet(GenericViewSet):
 
     @action(detail=False, methods=["get"])
     def top_qrs(self, request):
-        ...
+        data = DashboardSummaryService.top_qrs(
+            user=request.user,
+            request=request,
+        )
+
+        return Response(
+            {
+                "data": data,
+                "message": "Top performing QR codes fetched successfully."
+            }
+        )
 
     # @action(detail=False, methods=["get"])
     # def countries(self, request):

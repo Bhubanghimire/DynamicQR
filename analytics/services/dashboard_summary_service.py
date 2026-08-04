@@ -170,6 +170,48 @@ class DashboardSummaryService:
         return data
 
     @classmethod
+    def top_qrs(cls, user, request):
+        qr_queryset = cls._get_qr_queryset(user=user, request=request)
+        qr_ids = qr_queryset.values_list("id", flat=True)
+
+        period = request.query_params.get("period")
+        date_range = cls._resolve_date_range(period, request)
+
+        if date_range is None:
+            rows = (
+                QRAnalytics.objects.filter(qr_id__in=qr_ids)
+                .select_related("qr", "qr__qr_type")
+                .order_by("-total_scans", "qr__name", "qr_id")[:10]
+            )
+
+            return [
+                {
+                    "id": row.qr_id,
+                    "name": row.qr.name,
+                    "type": row.qr.qr_type.name if row.qr.qr_type else None,
+                    "total_scans": row.total_scans,
+                }
+                for row in rows
+            ]
+
+        daily_rows = cls._daily_queryset(qr_ids, date_range.start_date, date_range.end_date)
+        rows = (
+            daily_rows.values("qr_id", "qr__name", "qr__qr_type__name")
+            .annotate(total_scans=Coalesce(Sum("total_scans"), 0))
+            .order_by("-total_scans", "qr__name", "qr_id")[:10]
+        )
+
+        return [
+            {
+                "id": row["qr_id"],
+                "name": row["qr__name"],
+                "type": row["qr__qr_type__name"],
+                "total_scans": row["total_scans"] or 0,
+            }
+            for row in rows
+        ]
+
+    @classmethod
     def _get_qr_queryset(cls, user, request):
         queryset = QRCode.objects.filter(created_by=user, is_deleted=False)
 

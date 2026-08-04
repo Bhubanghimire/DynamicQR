@@ -10,7 +10,7 @@ class ConfigChoiceAdmin(admin.ModelAdmin):
 
 @admin.register(QRCode)
 class QRCodeAdmin(admin.ModelAdmin):
-    list_display = ('id', 'short_code', 'name', 'link_name', 'status', "created_at", "updated_at")
+    list_display = ('id', 'short_code', 'name', 'qr_type', 'link_name', 'status', "created_at", "updated_at")
 
 
 @admin.register(QRCodeData)
