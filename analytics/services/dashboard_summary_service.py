@@ -127,6 +127,49 @@ class DashboardSummaryService:
         }
 
     @classmethod
+    def qr_types(cls, user, request):
+        qr_queryset = cls._get_qr_queryset(user=user, request=request)
+        qr_ids = qr_queryset.values_list("id", flat=True)
+
+        period = request.query_params.get("period")
+        date_range = cls._resolve_date_range(period, request)
+
+        if date_range is None:
+            grouped_rows = (
+                QRAnalytics.objects.filter(qr_id__in=qr_ids)
+                .values("qr__qr_type__name")
+                .annotate(total_scans=Coalesce(Sum("total_scans"), 0))
+                .order_by("-total_scans", "qr__qr_type__name")
+            )
+            overall_total = QRAnalytics.objects.filter(qr_id__in=qr_ids).aggregate(
+                total_scans=Coalesce(Sum("total_scans"), 0)
+            )["total_scans"] or 0
+        else:
+            daily_rows = cls._daily_queryset(qr_ids, date_range.start_date, date_range.end_date)
+            grouped_rows = (
+                daily_rows.values("qr__qr_type__name")
+                .annotate(total_scans=Coalesce(Sum("total_scans"), 0))
+                .order_by("-total_scans", "qr__qr_type__name")
+            )
+            overall_total = daily_rows.aggregate(
+                total_scans=Coalesce(Sum("total_scans"), 0)
+            )["total_scans"] or 0
+
+        data = []
+        for row in grouped_rows:
+            type_total_scans = row["total_scans"] or 0
+            percentage = 0 if not overall_total else round((type_total_scans / overall_total) * 100, 2)
+            data.append(
+                {
+                    "type": row["qr__qr_type__name"],
+                    "total_scans": type_total_scans,
+                    "percentage": percentage,
+                }
+            )
+
+        return data
+
+    @classmethod
     def _get_qr_queryset(cls, user, request):
         queryset = QRCode.objects.filter(created_by=user, is_deleted=False)
 
