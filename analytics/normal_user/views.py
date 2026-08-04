@@ -1,42 +1,89 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
 from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
-from Qr.models import Project
+from Qr.models import Project, QRCode
 from DynamicOCR.pagination import CustomPagination
 from django.db.models import Q
 
 from analytics.serializers import DashboardSummarySerializer
 from analytics.services.dashboard_summary_service import DashboardSummaryService
+from analytics.services.qr_analytics_summary_service import QRAnalyticsSummaryService
 
 
 class AnalyticsSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
-        return ["Analytics"]
+        if isinstance(self.view, QRAnalyticsViewSet):
+            return ["QR Analytics"]
+        return ["Dashboard Analytics"]
 
     def get_operation_id(self, path, method):
-        return f"projects_{self.view.action}"
+        if isinstance(self.view, QRAnalyticsViewSet):
+            return f"qr_analytics_{self.view.action}"
+        return f"dashboard_analytics_{self.view.action}"
 
     def get_operation(self, path, method):
         operation = super().get_operation(path, method)
 
-        if getattr(self.view, "action", None) not in {"summary", "timeline", "qr_types"} or method.upper() != "GET":
+        if method.upper() != "GET":
             return operation
 
         parameters = operation.setdefault("parameters", [])
+        if isinstance(self.view, QRAnalyticsViewSet):
+            parameters.extend(
+                [
+                    {
+                        "name": "qr_id",
+                        "required": False,
+                        "in": "query",
+                        "description": "Filter analytics for a single QR code.",
+                        "schema": {"type": "string", "format": "uuid"},
+                    },
+                    {
+                        "name": "qr_type_id",
+                        "required": False,
+                        "in": "query",
+                        "description": "Filter analytics by QR type ID.",
+                        "schema": {"type": "string", "format": "uuid"},
+                    },
+                    {
+                        "name": "period",
+                        "required": False,
+                        "in": "query",
+                        "description": "Time window for analytics. Supported values: today, yesterday, 7d, 30d, 90d, 365d, custom.",
+                        "schema": {
+                            "type": "string",
+                            "enum": ["today", "yesterday", "7d", "30d", "90d", "365d", "custom"],
+                        },
+                    },
+                    {
+                        "name": "start_date",
+                        "required": False,
+                        "in": "query",
+                        "description": "Start date for custom period in YYYY-MM-DD format.",
+                        "schema": {"type": "string", "format": "date"},
+                    },
+                    {
+                        "name": "end_date",
+                        "required": False,
+                        "in": "query",
+                        "description": "End date for custom period in YYYY-MM-DD format.",
+                        "schema": {"type": "string", "format": "date"},
+                    },
+                ]
+            )
+            return operation
+
+        if getattr(self.view, "action", None) not in {"summary", "timeline", "qr_types", "top_qrs"}:
+            return operation
+
         parameters.extend(
             [
-                {
-                    "name": "project",
-                    "required": False,
-                    "in": "query",
-                    "description": "Filter analytics by project UUID.",
-                    "schema": {"type": "string", "format": "uuid"},
-                },
                 {
                     "name": "period",
                     "required": False,
@@ -101,9 +148,9 @@ class AnalyticsDashboardViewSet(GenericViewSet):
     permission_classes = [IsAuthenticated]
     schema = AnalyticsSchema()
 
-    permission_classes_by_action = {
-            'list': [IsAuthenticated],
-        }
+    # permission_classes_by_action = {
+    #         'list': [IsAuthenticated],
+    #     }
 
     def get_serializer_class(self):
         if self.action == "summary":
@@ -174,18 +221,111 @@ class AnalyticsDashboardViewSet(GenericViewSet):
             }
         )
 
-    # @action(detail=False, methods=["get"])
-    # def countries(self, request):
-    #     ...
 
-    # @action(detail=False, methods=["get"])
-    # def devices(self, request):
-    #     ...
 
-    # @action(detail=False, methods=["get"])
-    # def browsers(self, request):
-    #     ...
 
-    # @action(detail=False, methods=["get"])
-    # def operating_systems(self, request):
-    #     ...
+class QRAnalyticsViewSet(viewsets.GenericViewSet):
+    """
+    QR Analytics
+
+    Supports three scopes:
+
+    1. Overall Dashboard
+        /analytics/summary/
+
+    2. Single QR
+        /analytics/summary/?qr_id=<uuid>
+
+    3. QR Type Analytics
+        /analytics/summary/?qr_type_id=<uuid>
+    """
+
+    # serializer_class = EmptySerializer
+    schema = AnalyticsSchema()
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action == "summary":
+            return DashboardSummarySerializer
+
+        # elif self.action == "timeline":
+        #     return DashboardSummarySerializer
+        #
+        # elif self.action == "top_qrs":
+        #     return DashboardSummarySerializer
+
+        return DashboardSummarySerializer
+
+    def get_qr_queryset(self):
+        queryset = QRCode.objects.filter(
+            created_by=self.request.user,
+            is_deleted=False,
+        )
+
+        qr_id = self.request.query_params.get("qr_id")
+        qr_type_id = self.request.query_params.get("qr_type_id")
+
+        if qr_id and qr_type_id:
+            raise ValidationError("Provide either qr_id or qr_type_id, not both.")
+        if not qr_id and not qr_type_id:
+            raise ValidationError("Provide either qr_id or qr_type_id.")
+
+        if qr_id:
+            queryset = queryset.filter(pk=qr_id)
+
+        if qr_type_id:
+            queryset = queryset.filter(qr_type_id=qr_type_id)
+
+        return queryset
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        qr_queryset = self.get_qr_queryset()
+        data = QRAnalyticsSummaryService.execute(qr_queryset=qr_queryset, request=request)
+
+        return Response(
+            {
+                "data": data,
+                "message": "Analytics summary fetched successfully."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"])
+    def timeline(self, request):
+        qr_queryset = self.get_qr_queryset()
+
+        # TODO: Timeline Service
+
+        return Response(
+            {
+                "message": "Timeline fetched successfully."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"])
+    def weekdays(self, request):
+        qr_queryset = self.get_qr_queryset()
+
+        # TODO: Weekday Analytics Service
+
+        return Response(
+            {
+                "message": "Weekday analytics fetched successfully."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"])
+    def hours(self, request):
+        qr_queryset = self.get_qr_queryset()
+
+        # TODO: Hourly Analytics Service
+
+        return Response(
+            {
+                "message": "Hourly analytics fetched successfully."
+            },
+            status=status.HTTP_200_OK,
+        )
