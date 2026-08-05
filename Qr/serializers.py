@@ -276,6 +276,100 @@ class QRCodeBundleSerializer(serializers.Serializer):
         return data
 
 
+class QRCodeDuplicateRequestSerializer(serializers.Serializer):
+    pass
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        source_qr = self.context.get("source_qr")
+
+        if source_qr is None:
+            raise serializers.ValidationError("source_qr is required.")
+
+        if request is None or request.user is None:
+            raise serializers.ValidationError("Authenticated request is required.")
+
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        source_qr = self.context["source_qr"]
+        user = self.context["request"].user
+
+        duplicate = QRCode.objects.create(
+            project=source_qr.project,
+            name=f"{source_qr.name}-copy" if source_qr.name else "copy",
+            qr_type=source_qr.qr_type,
+            status=source_qr.status,
+            created_by=user,
+        )
+
+        self._duplicate_related(source_qr, duplicate)
+
+        return duplicate
+
+    def _duplicate_related(self, source_qr, duplicate_qr):
+        source_qr_data = QRCodeData.objects.filter(qr_code=source_qr).first()
+        if source_qr_data is not None:
+            QRCodeData.objects.create(
+                qr_code=duplicate_qr,
+                content_json=source_qr_data.content_json,
+            )
+
+        source_schedule = QRSchedule.objects.filter(qr_code=source_qr).first()
+        if source_schedule is not None:
+            QRSchedule.objects.create(
+                qr_code=duplicate_qr,
+                name=source_schedule.name,
+                start_date=source_schedule.start_date,
+                end_date=source_schedule.end_date,
+                is_scheduled=source_schedule.is_scheduled,
+            )
+
+        source_scan_setting = QRScanSetting.objects.filter(qr_code=source_qr).first()
+        if source_scan_setting is not None:
+            QRScanSetting.objects.create(
+                qr_code=duplicate_qr,
+                is_scan_limit=source_scan_setting.is_scan_limit,
+                domain=source_scan_setting.domain,
+                password_enabled=source_scan_setting.password_enabled,
+                password=source_scan_setting.password,
+                scan_limit=source_scan_setting.scan_limit,
+                is_time_limit=source_scan_setting.is_time_limit,
+                time_limit=source_scan_setting.time_limit,
+            )
+
+        source_design = QRDesign.objects.filter(qr_code=source_qr).first()
+        if source_design is not None:
+            QRDesign.objects.create(
+                qr_code=duplicate_qr,
+                design_data=source_design.design_data,
+                template=source_design.template,
+            )
+
+        source_media = QrMedia.objects.filter(qr_code=source_qr).first()
+        if source_media is not None:
+            duplicate_media = QrMedia.objects.create(
+                qrcode=duplicate_qr,
+                qr_code=duplicate_qr,
+                title=source_media.title,
+                autoplay=source_media.autoplay,
+                loop_playlist=source_media.loop_playlist,
+                show_thumbnails=source_media.show_thumbnails,
+            )
+
+            for media_item in source_media.videos.all().order_by("sort_order"):
+                MediaItem.objects.create(
+                    qr_media=duplicate_media,
+                    title=media_item.title,
+                    description=media_item.description,
+                    video=media_item.video,
+                    thumbnail=media_item.thumbnail,
+                    sort_order=media_item.sort_order,
+                    is_active=media_item.is_active,
+                )
+
+
 class ProjectDetailSerializer(ProjectSerializer):
     qrcodes = serializers.SerializerMethodField()
 

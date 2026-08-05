@@ -18,6 +18,7 @@ from Qr.serializers import (
     ProjectQRActionSerializer,
     QRCodeSerializer,
     QRCodeBundleSerializer,
+    QRCodeDuplicateRequestSerializer,
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
     VideoUpdateSerializer,
@@ -53,6 +54,8 @@ class ProjectSchema(PaginatedAutoSchema):
             return "Update a video media item. If `video` is included, the old file is replaced and deleted from storage. If `video` is omitted, only the other fields are updated."
         if action == "delete_video":
             return "Delete a video media item by its UUID."
+        if action == "duplicate":
+            return "Duplicate a QR code using fresh content and design supplied in the request body."
         return super().get_description(path, method)
 
     def get_request_serializer(self, path, method):
@@ -123,6 +126,14 @@ class ProjectSchema(PaginatedAutoSchema):
                 "content": {
                     ct: {"schema": item_schema}
                     for ct in self.request_media_types
+                }
+            }
+        if action == "duplicate":
+            serializer = self.get_request_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, QRCodeDuplicateRequestSerializer) else {}
+            return {
+                "content": {
+                    "application/json": {"schema": item_schema}
                 }
             }
         return super().get_request_body(path, method)
@@ -317,6 +328,8 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         #     return QRCodeBundleSerializer
         if self.action == "save_design":
             return QRDesignSerializer
+        if self.action == "duplicate":
+            return QRCodeDuplicateRequestSerializer
         if self.action in {"create","scan", "update", "partial_update", "retrieve"}:
             return QRCodeBundleSerializer
         return super().get_serializer_class()
@@ -423,6 +436,23 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         return Response(
             {"data": serializer.data, "message": "QR Scan fetched successfully."},
             status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="duplicate")
+    def duplicate(self, request, *args, **kwargs):
+        source_qr = self.get_object()
+        serializer = self.get_serializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "source_qr": source_qr},
+        )
+        serializer.is_valid(raise_exception=True)
+        duplicate_qr = serializer.save()
+        return Response(
+            {
+                "data": QRCodeBundleSerializer(duplicate_qr, context=self.get_serializer_context()).data,
+                "message": "QR code duplicated successfully.",
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 
