@@ -427,6 +427,37 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         #     qr_id=qr_code.id,
         #     request_data=request_data,
         # )
+        # track_scan(
+        #     qr_id=qr_code.id,
+        #     request_data=request_data,
+        # )
+
+        serializer = self.get_serializer(qr_code)
+        return Response(
+            {"data": serializer.data, "message": "QR Scan fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="analytics")
+    def analytics(self, request, *args, **kwargs):
+        try:
+            qr_code = self._get_qr_by_identifier(kwargs.get("pk"))
+        except QRCode.DoesNotExist:
+            raise NotFound()
+        request_data = {
+            "ip": self._get_client_ip(request),
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "referer": request.META.get("HTTP_REFERER", ""),
+            "language": request.META.get("HTTP_ACCEPT_LANGUAGE", ""),
+            "screen_width": request.query_params.get("sw"),
+            "screen_height": request.query_params.get("sh"),
+        }
+
+        # Queue analytics
+        # track_scan.delay(
+        #     qr_id=qr_code.id,
+        #     request_data=request_data,
+        # )
         track_scan(
             qr_id=qr_code.id,
             request_data=request_data,
