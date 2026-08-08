@@ -137,7 +137,7 @@ class DashboardSummaryService:
         if date_range is None:
             grouped_rows = (
                 QRAnalytics.objects.filter(qr_id__in=qr_ids)
-                .values("qr__qr_type__name")
+                .values("qr__qr_type_id", "qr__qr_type__name")
                 .annotate(total_scans=Coalesce(Sum("total_scans"), 0))
                 .order_by("-total_scans", "qr__qr_type__name")
             )
@@ -147,7 +147,7 @@ class DashboardSummaryService:
         else:
             daily_rows = cls._daily_queryset(qr_ids, date_range.start_date, date_range.end_date)
             grouped_rows = (
-                daily_rows.values("qr__qr_type__name")
+                daily_rows.values("qr__qr_type_id", "qr__qr_type__name")
                 .annotate(total_scans=Coalesce(Sum("total_scans"), 0))
                 .order_by("-total_scans", "qr__qr_type__name")
             )
@@ -161,6 +161,7 @@ class DashboardSummaryService:
             percentage = 0 if not overall_total else round((type_total_scans / overall_total) * 100, 2)
             data.append(
                 {
+                    "id": row["qr__qr_type_id"],
                     "type": row["qr__qr_type__name"],
                     "total_scans": type_total_scans,
                     "percentage": percentage,
