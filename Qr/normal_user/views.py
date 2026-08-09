@@ -281,7 +281,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "qr_type__name"]
 
     def get_permissions(self):
-        if self.action == "scan":
+        if self.action in {"scan", "analytics"}:
             return [AllowAny()]
         return super().get_permissions()
 
