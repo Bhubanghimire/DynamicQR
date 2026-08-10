@@ -1,6 +1,7 @@
 rm -r system/migrations
 rm -r accounts/migrations
 rm -r Qr/migrations
+rm -r analytics/migrations
 
 
 rm db.sqlite3
