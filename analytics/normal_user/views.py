@@ -85,6 +85,13 @@ class AnalyticsSchema(PaginatedAutoSchema):
         parameters.extend(
             [
                 {
+                    "name": "project",
+                    "required": False,
+                    "in": "query",
+                    "description": "Filter analytics to a single project owned by the authenticated user.",
+                    "schema": {"type": "string", "format": "uuid"},
+                },
+                {
                     "name": "period",
                     "required": False,
                     "in": "query",
@@ -264,8 +271,19 @@ class QRAnalyticsViewSet(viewsets.GenericViewSet):
             is_deleted=False,
         )
 
+        project_id = self.request.query_params.get("project")
         qr_id = self.request.query_params.get("qr_id")
         qr_type_id = self.request.query_params.get("qr_type_id")
+
+        if project_id:
+            project = Project.objects.filter(
+                pk=project_id,
+                owner=self.request.user,
+                is_deleted=False,
+            ).first()
+            if project is None:
+                return queryset.none()
+            queryset = queryset.filter(project=project)
 
         if qr_id and qr_type_id:
             raise ValidationError("Provide either qr_id or qr_type_id, not both.")
