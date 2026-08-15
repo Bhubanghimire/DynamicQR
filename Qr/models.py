@@ -76,6 +76,8 @@ class TemplateDesign(SoftDeletable):
 
 class QRDesign(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
+    qr_size = models.FloatField(null=True, blank=True)
+    status = models.BooleanField(default=True)
     design_data = models.JSONField()
     # eye_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='eye_style')
     # pattern_style = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='pattern_style')
