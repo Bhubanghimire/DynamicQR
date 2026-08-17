@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound
 from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from accounts.authentication import JWTAuthentication
 from django.db.models import Count, Q, Max
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign
@@ -25,6 +26,7 @@ from Qr.serializers import (
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
+from analytics.services.tracker import AnalyticsTracker
 
 class ProjectSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
@@ -422,15 +424,16 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             "screen_height": request.query_params.get("sh"),
         }
 
-        # Queue analytics
-        # track_scan.delay(
-        #     qr_id=qr_code.id,
-        #     request_data=request_data,
-        # )
-        # track_scan(
-        #     qr_id=qr_code.id,
-        #     request_data=request_data,
-        # )
+        try:
+            AnalyticsTracker(qr=qr_code, request_data=request_data).process(suppress_exceptions=False)
+        except ValidationError:
+            return Response(
+                {
+                    "data": ["Scan limit reached for this QR code."],
+                    "msg": "Scan limit reached for this QR code.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         serializer = self.get_serializer(qr_code)
         return Response(

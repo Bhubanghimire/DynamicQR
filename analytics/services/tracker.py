@@ -1,11 +1,12 @@
 # analytics/services/tracker.py
 
 import logging
-from datetime import datetime
 
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
 from analytics.dto import ScanContext
+from Qr.models import QRScanSetting
 
 from analytics.services.request_parser import RequestParser
 from analytics.services.user_agent_parser import UserAgentParser
@@ -29,7 +30,7 @@ class AnalyticsTracker:
             request_data=request_data,
         )
 
-    def process(self):
+    def process(self, suppress_exceptions=True):
 
         try:
 
@@ -53,6 +54,8 @@ class AnalyticsTracker:
             #
             VisitorService(self.context).process()
 
+            self._enforce_scan_limit()
+
             #
             # Database Updates
             #
@@ -67,4 +70,23 @@ class AnalyticsTracker:
 
         except Exception:
 
+            if not suppress_exceptions:
+                raise
+
             logger.exception("Analytics processing failed")
+
+    def _enforce_scan_limit(self):
+        scan_setting = QRScanSetting.objects.filter(
+            qr_code=self.context.qr,
+            is_scan_limit=True,
+        ).first()
+
+        if scan_setting is None or scan_setting.scan_limit is None:
+            return
+
+        if not self.context.visitor:
+            return
+
+        existing_scans = self.context.qr.scan_events.filter(visitor=self.context.visitor).count()
+        if existing_scans >= scan_setting.scan_limit:
+            raise ValidationError("Scan limit reached for this QR code.")

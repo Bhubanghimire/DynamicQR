@@ -30,6 +30,9 @@ class QRCode(SoftDeletable):
     status = models.BooleanField(default=True)
     created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
 
+    def __str__(self):
+        return self.name
+
     def save(self, *args, **kwargs):
         if not self.short_code:
             while True:
