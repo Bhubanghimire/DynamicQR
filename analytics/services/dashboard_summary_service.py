@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 from django.db.models import Avg, Max, Min, Sum
@@ -253,6 +253,11 @@ class DashboardSummaryService:
             start_date = request.query_params.get("start_date")
             end_date = request.query_params.get("end_date")
             if not start_date or not end_date:
+                return None
+            try:
+                start_date = date.fromisoformat(start_date)
+                end_date = date.fromisoformat(end_date)
+            except ValueError:
                 return None
             return DateRange(start_date=start_date, end_date=end_date)
 
