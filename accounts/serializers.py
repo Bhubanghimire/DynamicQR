@@ -10,6 +10,10 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 
+class GoogleLoginSerializer(serializers.Serializer):
+    code = serializers.CharField()
+
+
 class RefreshSerializer(serializers.Serializer):
     refresh_token = serializers.CharField()
 

@@ -1,12 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from accounts.views import AuthViewSet, ProfileViewset
+from accounts.views import AuthViewSet, ProfileViewset, GoogleLoginWithCodeAPIView
 
 app_name = "accounts_user"
 
 account_router = DefaultRouter()
 account_router.register(r'auth', AuthViewSet, basename='auth')
 account_router.register(r'profile', ProfileViewset, basename='profile')
+
 # account_router.register(r'profile', ProfileViewSet, basename='profile')
 # account_router.register(r'chat', ChatViewSet, basename='chat')
 # account_router.register(r'fcm_token', FCMDeviceViewSet, basename='fcm_token')
@@ -14,4 +15,7 @@ account_router.register(r'profile', ProfileViewset, basename='profile')
 
 urlpatterns = [
     path('', include(account_router.urls)),
+    path('google/login/', GoogleLoginWithCodeAPIView.as_view(), name='google_login'),
+    path('allauth/', include('allauth.socialaccount.urls')),
+    # path('api/auth/', include('dj_rest_auth.urls')),
 ]

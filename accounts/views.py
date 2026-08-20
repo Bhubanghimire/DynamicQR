@@ -21,7 +21,7 @@ from accounts.models import OTP, User
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
-    ProfileImageUpdateSerializer
+    ProfileImageUpdateSerializer, GoogleLoginSerializer
 
 
 def set_refresh_cookie(response, refresh_token):
@@ -351,3 +351,129 @@ class ProfileViewset(viewsets.GenericViewSet):
             {"data": response_serializer.data, "message": "Profile image updated successfully."},
             status=status.HTTP_200_OK,
         )
+
+
+from dj_rest_auth.registration.views import SocialLoginView
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+import os
+
+def _build_mobile_social_login_response(payload):
+    user_payload = payload.get("user") or {}
+    return {
+        "data": {
+            "access_token": payload.get("access") or payload.get("access_token"),
+            "refresh_token": payload.get("refresh") or payload.get("refresh_token"),
+            "user": {
+                "pk": user_payload.get("pk") or user_payload.get("id"),
+                "email": user_payload.get("email", ""),
+                "first_name": user_payload.get("first_name", ""),
+                "last_name": user_payload.get("last_name", ""),
+            },
+        },
+        "message": "login successful",
+    }
+
+
+def _get_dev_social_user():
+    email = os.getenv("DEV_SOCIAL_LOGIN_EMAIL", "test@example.com").strip() or "test@example.com"
+    first_name = os.getenv("DEV_SOCIAL_LOGIN_FIRST_NAME", "Test").strip() or "Test"
+    last_name = os.getenv("DEV_SOCIAL_LOGIN_LAST_NAME", "User").strip() or "User"
+    full_name = os.getenv("DEV_SOCIAL_LOGIN_FULL_NAME", f"{first_name} {last_name}").strip() or f"{first_name} {last_name}"
+    phone = os.getenv("DEV_SOCIAL_LOGIN_PHONE", "0000000000").strip() or "0000000000"
+
+    user, created = User.objects.get_or_create(
+        email=email,
+        defaults={
+            "full_name": full_name,
+            "phone": phone,
+            "is_active": True,
+        },
+    )
+
+    update_fields = []
+    if not created:
+        desired_values = {
+            "full_name": full_name,
+            "phone": phone,
+            "is_active": True,
+        }
+        for field_name, value in desired_values.items():
+            if getattr(user, field_name) != value:
+                setattr(user, field_name, value)
+                update_fields.append(field_name)
+        if update_fields:
+            user.save(update_fields=update_fields)
+
+    # UserScoreStreak.objects.get_or_create(user=user)
+    # UserTalkStreak.objects.get_or_create(user=user)
+    return user
+
+def _build_dev_social_login_payload():
+    user = _get_dev_social_user()
+    # refresh = RefreshToken.for_user(user)
+    return {
+        # "access": str(refresh.access_token),
+        # "refresh": str(refresh),
+        "user": {
+            "id": user.id,
+            "pk": user.id,
+            "email": user.email,
+            "first_name": user.full_name.split(" ", 1)[0] if user.full_name else "",
+            "last_name": user.full_name.split(" ", 1)[1] if user.full_name and " " in user.full_name else "",
+        },
+    }
+
+
+def _dev_social_response_if_matched(request, field_name: str, expected_value: str):
+
+
+    configured_value = os.getenv(expected_value, "").strip()
+    request_value = str(request.data.get(field_name, "")).strip()
+    if not configured_value or request_value != configured_value:
+        return None
+
+    return Response(_build_mobile_social_login_response(_build_dev_social_login_payload()))
+
+class GoogleOAuth2Client(OAuth2Client):
+    def __init__(self, *args, **kwargs):
+        kwargs.pop("scope_delimiter", None)
+        super().__init__(*args, **kwargs)
+
+
+class GoogleLoginSchema(AutoSchema):
+    def get_tags(self, path, method):
+        return ["Accounts"]
+
+    def get_operation_id(self, path, method):
+        return "accounts_google_login"
+
+    def get_request_serializer(self, path, method):
+        if method.upper() == "POST":
+            return GoogleLoginSerializer()
+        return super().get_request_serializer(path, method)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class GoogleLoginWithCodeAPIView(SocialLoginView):
+    permission_classes = [AllowAny]
+    adapter_class = GoogleOAuth2Adapter
+    callback_url = os.getenv("GOOGLE_OAUTH2_CALLBACK_URL", "http://localhost:8000")
+    client_class = GoogleOAuth2Client
+    schema = GoogleLoginSchema()
+    throttle_classes = []
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        dev_response = _dev_social_response_if_matched(
+            request,
+            field_name="code",
+            expected_value="DEV_GOOGLE_LOGIN_CODE",
+        )
+        if dev_response is not None:
+            return dev_response
+        return super().post(request, *args, **kwargs)
+
+    def get_response(self):
+        res = super().get_response().data
+        return Response(_build_mobile_social_login_response(res))
