@@ -1,5 +1,7 @@
 from django.db import transaction
 from uuid import UUID
+
+from django.http import JsonResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -409,12 +411,21 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["get"], url_path="scan")
+    @action(detail=True, methods=["post"], url_path="scan")
     def scan(self, request, *args, **kwargs):
         try:
             qr_code = self._get_qr_by_identifier(kwargs.get("pk"))
         except QRCode.DoesNotExist:
             raise NotFound()
+
+        is_enabled, password_saved = qr_code.is_password_enabled()
+        if is_enabled:
+            password_ui = request.data.get("password")
+            if not password_ui:
+                return Response({"data":{"password_enabled":True}, "message": "Password enabled."}, status=status.HTTP_400_BAD_REQUEST)
+            if password_ui != password_saved:
+                return Response({"data":False, "message": "Wrong password."}, status=status.HTTP_400_BAD_REQUEST)
+
         request_data = {
             "ip": self._get_client_ip(request),
             "user_agent": request.META.get("HTTP_USER_AGENT", ""),

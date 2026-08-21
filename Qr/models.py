@@ -45,6 +45,12 @@ class QRCode(SoftDeletable):
                     break
         super().save(*args, **kwargs)
 
+    def is_password_enabled(self):
+        setting = QRScanSetting.objects.filter(qr_code=self).first()
+        if not setting:
+            return False, False
+        return setting.password_enabled, setting.password
+
 
 class QRCodeData(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
