@@ -87,19 +87,42 @@ ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 
 SOCIALACCOUNT_PROVIDERS = {
-    'google': {
-        'APP': {
-            'client_id': config("GOOGLE_CLIENT_ID", default=""),
-            'secret': config("GOOGLE_CLIENT_SECRET", default=""),
-            'key': "",
-        },
-        'SCOPE': ['profile', 'email'],
-        'AUTH_PARAMS': {
-            'access_type': 'offline',
-            'prompt': 'consent',
-        },
+    "google": {
+        "APPS": [
+            {
+                "client_id": config("GOOGLE_CLIENT_ID", default=""),
+                "secret": config("GOOGLE_CLIENT_SECRET", default=""),
+                "key": "",
+                "settings": {
+                    "scope": ["profile", "email"],
+                    "auth_params": {
+                        "access_type": "online",
+                        "prompt": "consent",
+                    },
+                },
+            }
+        ],
     }
 }
+
+GOOGLE_OAUTH2_CALLBACK_URL = config(
+    "GOOGLE_OAUTH2_CALLBACK_URL",
+    default="http://localhost:8000/api/v1.1/user/accounts/google/login/complete/",
+)
+
+LOGIN_REDIRECT_URL = config(
+    "LOGIN_REDIRECT_URL",
+    default="/api/v1.1/user/accounts/google/login/complete/",
+)
+
+# GOOGLE_ALLOWED_FRONTEND_CALLBACKS = [
+#     "http://localhost:3000/auth/google/callback",
+#     "http://localhost:5173/auth/google/callback",
+#     "https://dev-qrnepal.vercel.app/auth/google/callback",
+#     "https://qrnepal.vercel.app/auth/google/callback",
+# ]
+GOOGLE_FRONTEND_CALLBACK = "http://localhost:5173/auth/google/callback"
+SOCIALACCOUNT_LOGIN_ON_GET = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -108,6 +131,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
     "https://qrnepal.vercel.app",
+    "https://less-approach-farming-cultures.trycloudflare.com",
     "https://dev-qrnepal.vercel.app"
 
 ]
@@ -120,8 +144,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
-"https://qrnepal.vercel.app",
-    "https://dev-qrnepal.vercel.app"
+    "https://qrnepal.vercel.app",
+    "https://dev-qrnepal.vercel.app",
+    "https://less-approach-farming-cultures.trycloudflare.com"
 ]
 
 MIDDLEWARE = [
@@ -251,3 +276,5 @@ DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 # SESSION_COOKIE_SAMESITE = 'None'
 
 REFRESH_COOKIE_DOMAIN = config("REFRESH_COOKIE_DOMAIN", default=None)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True

@@ -1,28 +1,37 @@
 import jwt
+import os
+import hashlib
 from django.conf import settings
 from django.contrib.auth.hashers import check_password
 from django.core.mail import EmailMultiAlternatives
 from django.http import JsonResponse
+from django.shortcuts import redirect
+from django.utils import timezone
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.schemas.openapi import AutoSchema
 from rest_framework import status
-from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
+from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
 from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
-from accounts.models import OTP, User
+from accounts.models import OTP, User, GoogleOAuthExchangeCode
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
-    ProfileImageUpdateSerializer, GoogleLoginSerializer
+    ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer
 
+from django.core import signing
+from urllib.parse import urlencode
 
 def set_refresh_cookie(response, refresh_token):
     """
@@ -353,28 +362,6 @@ class ProfileViewset(viewsets.GenericViewSet):
         )
 
 
-from dj_rest_auth.registration.views import SocialLoginView
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
-from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-import os
-
-def _build_mobile_social_login_response(payload):
-    user_payload = payload.get("user") or {}
-    return {
-        "data": {
-            "access_token": payload.get("access") or payload.get("access_token"),
-            "refresh_token": payload.get("refresh") or payload.get("refresh_token"),
-            "user": {
-                "pk": user_payload.get("pk") or user_payload.get("id"),
-                "email": user_payload.get("email", ""),
-                "first_name": user_payload.get("first_name", ""),
-                "last_name": user_payload.get("last_name", ""),
-            },
-        },
-        "message": "login successful",
-    }
-
-
 def _get_dev_social_user():
     email = os.getenv("DEV_SOCIAL_LOGIN_EMAIL", "test@example.com").strip() or "test@example.com"
     first_name = os.getenv("DEV_SOCIAL_LOGIN_FIRST_NAME", "Test").strip() or "Test"
@@ -405,75 +392,135 @@ def _get_dev_social_user():
         if update_fields:
             user.save(update_fields=update_fields)
 
-    # UserScoreStreak.objects.get_or_create(user=user)
-    # UserTalkStreak.objects.get_or_create(user=user)
     return user
 
-def _build_dev_social_login_payload():
-    user = _get_dev_social_user()
-    # refresh = RefreshToken.for_user(user)
-    return {
-        # "access": str(refresh.access_token),
-        # "refresh": str(refresh),
-        "user": {
-            "id": user.id,
-            "pk": user.id,
-            "email": user.email,
-            "first_name": user.full_name.split(" ", 1)[0] if user.full_name else "",
-            "last_name": user.full_name.split(" ", 1)[1] if user.full_name and " " in user.full_name else "",
-        },
-    }
-
-
-def _dev_social_response_if_matched(request, field_name: str, expected_value: str):
-
-
-    configured_value = os.getenv(expected_value, "").strip()
-    request_value = str(request.data.get(field_name, "")).strip()
-    if not configured_value or request_value != configured_value:
-        return None
-
-    return Response(_build_mobile_social_login_response(_build_dev_social_login_payload()))
-
-class GoogleOAuth2Client(OAuth2Client):
-    def __init__(self, *args, **kwargs):
-        kwargs.pop("scope_delimiter", None)
-        super().__init__(*args, **kwargs)
-
-
-class GoogleLoginSchema(AutoSchema):
+class GoogleLoginRedirectSchema(AutoSchema):
     def get_tags(self, path, method):
         return ["Accounts"]
 
     def get_operation_id(self, path, method):
         return "accounts_google_login"
 
+
+class GoogleLoginCompleteSchema(AutoSchema):
+    def get_tags(self, path, method):
+        return ["Accounts"]
+
+    def get_operation_id(self, path, method):
+        return "accounts_google_login_complete"
+
+@method_decorator(csrf_exempt, name='dispatch')
+class GoogleLoginRedirectAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+    schema = GoogleLoginRedirectSchema()
+
+    def get(self, request):
+        frontend_url = settings.GOOGLE_FRONTEND_CALLBACK
+
+        print("=== GOOGLE LOGIN REDIRECT ===")
+        print("FRONTEND CALLBACK:", frontend_url)
+
+        return redirect(
+            "/api/v1.1/user/accounts/allauth/google/login/"
+        )
+
+@method_decorator(csrf_exempt, name='dispatch')
+class GoogleLoginCompleteAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = [SessionAuthentication]
+    throttle_classes = []
+    schema = GoogleLoginCompleteSchema()
+
+    def get(self, request):
+        print("=== GOOGLE LOGIN COMPLETE ===")
+        print("SESSION:", dict(request.session))
+        print("USER:", request.user)
+        print("AUTHENTICATED:", request.user.is_authenticated)
+
+        user = request.user
+
+        if not user or not user.is_authenticated:
+            return Response(
+                {"message": "Authentication required."},
+                status=HTTP_401_UNAUTHORIZED
+            )
+
+        raw_code = GoogleOAuthExchangeCode.issue_for_user(
+            user,
+            ttl_seconds=60
+        )
+
+        frontend_url = settings.GOOGLE_FRONTEND_CALLBACK
+
+        separator = "&" if "?" in frontend_url else "?"
+
+        return redirect(
+            f"{frontend_url}{separator}code={raw_code}"
+        )
+
+class GoogleOAuthExchangeSchema(AutoSchema):
+    def get_tags(self, path, method):
+        return ["Accounts"]
+
+    def get_operation_id(self, path, method):
+        return "accounts_google_oauth_exchange"
+
     def get_request_serializer(self, path, method):
         if method.upper() == "POST":
-            return GoogleLoginSerializer()
+            return GoogleOAuthExchangeSerializer()
         return super().get_request_serializer(path, method)
+
+    def get_response_serializer(self, path, method):
+        if method.upper() == "POST":
+            return TokenResponseSerializer()
+        return super().get_response_serializer(path, method)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
-class GoogleLoginWithCodeAPIView(SocialLoginView):
+class GoogleOAuthExchangeAPIView(APIView):
     permission_classes = [AllowAny]
-    adapter_class = GoogleOAuth2Adapter
-    callback_url = os.getenv("GOOGLE_OAUTH2_CALLBACK_URL", "http://localhost:8000")
-    client_class = GoogleOAuth2Client
-    schema = GoogleLoginSchema()
-    throttle_classes = []
     authentication_classes = []
+    throttle_classes = []
+    schema = GoogleOAuthExchangeSchema()
 
-    def post(self, request, *args, **kwargs):
-        dev_response = _dev_social_response_if_matched(
-            request,
-            field_name="code",
-            expected_value="DEV_GOOGLE_LOGIN_CODE",
+    def post(self, request):
+        serializer = GoogleOAuthExchangeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        raw_code = serializer.validated_data["code"]
+        code_hash = hashlib.sha256(raw_code.encode("utf-8")).hexdigest()
+
+        with transaction.atomic():
+            exchange_code = (
+                GoogleOAuthExchangeCode.objects.select_for_update()
+                .select_related("user")
+                .filter(code_hash=code_hash, used_at__isnull=True)
+                .first()
+            )
+            if exchange_code is None:
+                return Response({"message": "Invalid or expired code."}, status=HTTP_400_BAD_REQUEST)
+            if exchange_code.is_expired():
+                exchange_code.delete()
+                return Response({"message": "Invalid or expired code."}, status=HTTP_400_BAD_REQUEST)
+
+            exchange_code.used_at = timezone.now()
+            exchange_code.save(update_fields=["used_at"])
+            user = exchange_code.user
+
+        access_token = generate_access_token(user)
+        refresh_token = generate_refresh_token(user)
+        user_data = ProfileDetailSerializer(user, context={"request": request}).data
+
+        response = Response(
+            {
+                "data": {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "user": user_data,
+                },
+                "message": "login successful",
+            },
+            status=HTTP_200_OK,
         )
-        if dev_response is not None:
-            return dev_response
-        return super().post(request, *args, **kwargs)
-
-    def get_response(self):
-        res = super().get_response().data
-        return Response(_build_mobile_social_login_response(res))
+        return set_refresh_cookie(response, refresh_token)

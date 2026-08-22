@@ -7,6 +7,7 @@ from rest_framework.renderers import JSONOpenAPIRenderer
 from rest_framework.permissions import AllowAny
 from rest_framework.schemas import get_schema_view
 from django.views.generic import TemplateView
+from allauth.socialaccount.providers.google.views import oauth2_login, oauth2_callback
 
 schema_view = get_schema_view(title="DynamicOCR API", description="OpenAPI schema for the DynamicOCR backend.",
                               version="1.1", public=True, permission_classes=[AllowAny], authentication_classes=[],
@@ -25,6 +26,8 @@ def home(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", home),
+    path("api/v1.1/user/accounts/allauth/google/login/", oauth2_login, name="google_login"),
+    path("api/v1.1/user/accounts/allauth/google/login/callback/", oauth2_callback, name="google_callback"),
 
     # path("api/v1.1/admin/", include(("DynamicOCR.api.admin_urls", "api_admin"), namespace="api_admin")),
     path("api/category/", include(("system.normal_user.urls", "system_user"), namespace="system_user")),

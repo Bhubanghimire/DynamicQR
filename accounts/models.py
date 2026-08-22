@@ -1,4 +1,6 @@
 import uuid
+import hashlib
+import secrets
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
@@ -85,4 +87,33 @@ class OTP(models.Model):
     class Meta:
         unique_together = (('email', 'otp'),)
 
+
+class GoogleOAuthExchangeCode(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="google_oauth_exchange_codes")
+    code_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @classmethod
+    def generate_code(cls):
+        return secrets.token_urlsafe(32)
+
+    @classmethod
+    def hash_code(cls, raw_code):
+        return hashlib.sha256(raw_code.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def issue_for_user(cls, user, ttl_seconds=60):
+        raw_code = cls.generate_code()
+        now = timezone.now()
+        cls.objects.create(
+            user=user,
+            code_hash=cls.hash_code(raw_code),
+            expires_at=now + timedelta(seconds=ttl_seconds),
+        )
+        return raw_code
+
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
 

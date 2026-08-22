@@ -14,6 +14,10 @@ class GoogleLoginSerializer(serializers.Serializer):
     code = serializers.CharField()
 
 
+class GoogleOAuthExchangeSerializer(serializers.Serializer):
+    code = serializers.CharField()
+
+
 class RefreshSerializer(serializers.Serializer):
     refresh_token = serializers.CharField()
 
