@@ -28,6 +28,7 @@ urlpatterns = [
     path("", home),
     path("api/v1.1/user/accounts/allauth/google/login/", oauth2_login, name="google_login"),
     path("api/v1.1/user/accounts/allauth/google/login/callback/", oauth2_callback, name="google_callback"),
+    path("api/v1.1/user/accounts/allauth/", include("allauth.socialaccount.urls")),
 
     # path("api/v1.1/admin/", include(("DynamicOCR.api.admin_urls", "api_admin"), namespace="api_admin")),
     path("api/category/", include(("system.normal_user.urls", "system_user"), namespace="system_user")),

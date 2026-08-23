@@ -105,6 +105,8 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
+SOCIALACCOUNT_AUTO_SIGNUP = True
+
 GOOGLE_OAUTH2_CALLBACK_URL = config(
     "GOOGLE_OAUTH2_CALLBACK_URL",
     default="http://localhost:8000/api/v1.1/user/accounts/google/login/complete/",
