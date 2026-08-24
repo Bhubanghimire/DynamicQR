@@ -107,12 +107,30 @@ class Invitations(SoftDeletable):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     resource_id = models.UUIDField()
     content_object = GenericForeignKey('content_type', 'resource_id')
-    role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='role')
+    role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='invitation')
     token = models.CharField(max_length=100, unique=True)
     invited_by = models.ForeignKey(User, on_delete=models.RESTRICT, related_name='invitations_sent')
     status = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
+    expires_at = models.DateTimeField()
     accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="invitations_accepted",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=['content_type', 'resource_id']
+            ),
+            models.Index(
+                fields=['email', 'status']
+            ),
+        ]
 
 
 
@@ -122,6 +140,16 @@ class SharePermissions(SoftDeletable):
     resource_id = models.UUIDField()
     content_object = GenericForeignKey('content_type', 'resource_id')
     role = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=['content_type', 'resource_id']
+            ),
+            models.Index(
+                fields=['user_id', 'content_type', 'resource_id']
+            ),
+        ]
 
 
 class QrMedia(SoftDeletable):

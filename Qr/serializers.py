@@ -1,5 +1,14 @@
+from datetime import timedelta
+from uuid import uuid4
+
 from django.db import transaction
 from rest_framework import serializers
+from django.contrib.contenttypes.models import ContentType
+from rest_framework import serializers
+from django.utils import timezone
+
+from .models import Invitations, SharePermissions, Project
+from system.models import ConfigChoice
 
 from Qr.models import (
     Project,
@@ -12,6 +21,7 @@ from Qr.models import (
     QrMedia,
     MediaItem,
 )
+from accounts.models import User
 from system.models import ConfigChoice
 
 
@@ -428,3 +438,98 @@ class VideoUpdateSerializer(serializers.Serializer):
 
 class VideoDeleteSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the media item to delete.")
+
+
+
+
+
+class ProjectInvitationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.CharField()
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_role(self, value):
+        try:
+            role = ConfigChoice.objects.get(
+                id=value,
+            )
+        except ConfigChoice.DoesNotExist:
+            raise serializers.ValidationError(
+                "Invalid project role."
+            )
+
+        self._role = role
+        return value
+
+    def validate(self, attrs):
+        project = self.context["project"]
+        email = attrs["email"]
+
+        user = User.objects.filter(
+            email__iexact=email,
+            is_deleted=False,
+        ).first()
+
+        # Existing member check
+        if user:
+            content_type = ContentType.objects.get_for_model(Project)
+
+            already_member = SharePermissions.objects.filter(
+                user_id=user,
+                content_type=content_type,
+                resource_id=project.id,
+                is_deleted=False,
+            ).exists()
+
+            if already_member:
+                raise serializers.ValidationError(
+                    {
+                        "email": "This user is already a member of the project."
+                    }
+                )
+
+        # Existing pending invitation check
+        content_type = ContentType.objects.get_for_model(Project)
+
+        pending_invitation = Invitations.objects.filter(
+            email__iexact=email,
+            content_type=content_type,
+            resource_id=project.id,
+            status__name__iexact="pending",
+            is_deleted=False,
+        ).exists()
+
+        if pending_invitation:
+            raise serializers.ValidationError(
+                {
+                    "email": "An invitation is already pending for this email."
+                }
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+        project = self.context["project"]
+        role = getattr(self, "_role", None)
+
+        if role is None:
+            raise serializers.ValidationError({"role": "Invalid project role."})
+
+        pending_status = ConfigChoice.objects.filter(name__iexact="pending").first()
+        if pending_status is None:
+            raise serializers.ValidationError(
+                {"status": "Pending invitation status is not configured."}
+            )
+
+        return Invitations.objects.create(
+            email=validated_data["email"],
+            content_type=ContentType.objects.get_for_model(Project),
+            resource_id=project.id,
+            role=role,
+            token=uuid4().hex,
+            invited_by=self.context["request"].user,
+            status=pending_status,
+            expires_at=timezone.now() + timedelta(days=7),
+        )

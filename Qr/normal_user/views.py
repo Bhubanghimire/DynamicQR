@@ -1,6 +1,8 @@
 from django.db import transaction
 from uuid import UUID
-
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.http import JsonResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -24,7 +26,7 @@ from Qr.serializers import (
     QRCodeDuplicateRequestSerializer,
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
-    VideoUpdateSerializer,
+    VideoUpdateSerializer, ProjectInvitationSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -142,6 +144,44 @@ class ProjectSchema(PaginatedAutoSchema):
             }
         return super().get_request_body(path, method)
 
+def send_project_invitation_email(invitation):
+    invitation_url = (
+        f"{settings.FRONTEND_URL}"
+        f"/project/invitations/{invitation.token}"
+    )
+
+    context = {
+        "invited_by_name": invitation.invited_by.get_full_name()
+        or invitation.invited_by.email,
+        "project_name": invitation.content_object.name,
+        "role": invitation.role.name,
+        "invitation_url": invitation_url,
+        "expires_at": invitation.expires_at,
+    }
+
+    html_content = render_to_string(
+        "email/project_invitation.html",
+        context,
+    )
+
+    text_content = render_to_string(
+        "email/project_invitation.txt",
+        context,
+    )
+
+    email = EmailMultiAlternatives(
+        subject=f"You've been invited to {invitation.content_object.name}",
+        body=text_content,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[invitation.email],
+    )
+
+    email.attach_alternative(
+        html_content,
+        "text/html",
+    )
+
+    email.send()
 
 class ProjectViewSet(viewsets.ModelViewSet):
     schema = ProjectSchema()
@@ -274,6 +314,37 @@ class ProjectViewSet(viewsets.ModelViewSet):
         response.data["message"] = "Project QR codes fetched successfully."
         return response
 
+    @action(detail=True, methods=["post"], url_path="invitations")
+    def invitations(self, request, *args, **kwargs):
+        project = self.get_object()
+
+        serializer = ProjectInvitationSerializer(
+            data=request.data,
+            context={
+                "request": request,
+                "project": project,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+
+        invitation = serializer.save(
+            invited_by=request.user,
+            project=project,
+        )
+        send_project_invitation_email(invitation)
+
+        return Response(
+            {
+                "data": {
+                    "id": invitation.id,
+                    "email": invitation.email,
+                    "role": invitation.role.name,
+                    "status": invitation.status.name,
+                },
+                "message": "Project invitation sent successfully.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 class QRCodeViewSet(viewsets.ModelViewSet):
     queryset = QRCode.objects.all().order_by("-created_at")

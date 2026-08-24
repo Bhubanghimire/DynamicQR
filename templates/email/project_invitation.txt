@@ -1,0 +1,11 @@
+You have been invited to a project.
+
+{{ invited_by_name }} has invited you to join {{ project_name }} as a {{ role }}.
+
+Accept the invitation:
+
+{{ invitation_url }}
+
+This invitation will expire on {{ expires_at }}.
+
+If you were not expecting this invitation, you can safely ignore this email.
