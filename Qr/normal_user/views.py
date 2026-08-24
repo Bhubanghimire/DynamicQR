@@ -4,6 +4,8 @@ from django.db import transaction
 from uuid import UUID
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+import secrets
+from datetime import timedelta
 from django.template.loader import render_to_string
 from django.http import JsonResponse
 from rest_framework import viewsets
@@ -70,6 +72,8 @@ class ProjectSchema(PaginatedAutoSchema):
         action = getattr(self.view, "action", None)
         if action in {"add_qr", "remove_qr"}:
             return ProjectQRActionSerializer()
+        if action == "invitations":
+            return ProjectInvitationSerializer()
         if action == "upload":
             return VideoUploadSerializer()
         if action in {"update", "partial_update"} and getattr(self.view, "basename", None) == "video":
@@ -134,6 +138,15 @@ class ProjectSchema(PaginatedAutoSchema):
                 "content": {
                     ct: {"schema": item_schema}
                     for ct in self.request_media_types
+                }
+            }
+        if action == "invitations":
+            self.request_media_types = ["application/json"]
+            serializer = self.get_request_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, ProjectInvitationSerializer) else {}
+            return {
+                "content": {
+                    "application/json": {"schema": item_schema}
                 }
             }
         if action == "duplicate":
@@ -316,37 +329,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
         response.data["message"] = "Project QR codes fetched successfully."
         return response
 
-    @action(detail=True, methods=["post"], url_path="invitations")
-    def invitations(self, request, *args, **kwargs):
-        project = self.get_object()
-
-        serializer = ProjectInvitationSerializer(
-            data=request.data,
-            context={
-                "request": request,
-                "project": project,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-
-        invitation = serializer.save(
-            invited_by=request.user,
-            project=project,
-        )
-        send_project_invitation_email(invitation)
-
-        return Response(
-            {
-                "data": {
-                    "id": invitation.id,
-                    "email": invitation.email,
-                    "role": invitation.role.name,
-                    "status": invitation.status.name,
-                },
-                "message": "Project invitation sent successfully.",
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 class QRCodeViewSet(viewsets.ModelViewSet):
     queryset = QRCode.objects.all().order_by("-created_at")
@@ -796,6 +778,7 @@ from rest_framework.response import Response
 class ProjectInvitationViewSet(viewsets.GenericViewSet):
     permission_classes = [AllowAny]
     serializer_class = ProjectInvitationSerializer
+    queryset = Project.objects.all()
 
     @action(
         detail=False,
@@ -960,6 +943,290 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "role": invitation.role.name,
                 },
                 "message": "Project invitation accepted successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="invitations")
+    def invitations(self, request, *args, **kwargs):
+        project = self.get_object()
+
+        serializer = ProjectInvitationSerializer(
+            data=request.data,
+            context={
+                "request": request,
+                "project": project,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+
+        invitation = serializer.save(
+            invited_by=request.user,
+            project=project,
+        )
+        send_project_invitation_email(invitation)
+
+        return Response(
+            {
+                "data": {
+                    "id": invitation.id,
+                    "email": invitation.email,
+                    "role": invitation.role.name,
+                    "status": invitation.status.name,
+                },
+                "message": "Project invitation sent successfully.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"(?P<token>[^/.]+)/reject",
+        permission_classes=[IsAuthenticated],
+    )
+    def reject(self, request, token):
+        with transaction.atomic():
+            try:
+                invitation = (
+                    Invitations.objects
+                    .select_for_update()
+                    .select_related(
+                        "invited_by",
+                        "role",
+                        "status",
+                    )
+                    .get(
+                        token=token,
+                        is_deleted=False,
+                    )
+                )
+            except Invitations.DoesNotExist:
+                return Response(
+                    {
+                        "data": {},
+                        "message": "Invitation not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if invitation.expires_at < timezone.now():
+                return Response(
+                    {
+                        "data": {},
+                        "message": "This invitation has expired.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if invitation.accepted_at:
+                return Response(
+                    {
+                        "data": {},
+                        "message": "This invitation has already been accepted.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if invitation.rejected_at:
+                return Response(
+                    {
+                        "data": {},
+                        "message": "This invitation has already been rejected.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if invitation.email.lower() != request.user.email.lower():
+                return Response(
+                    {
+                        "data": {},
+                        "message": (
+                            "This invitation was sent to a different "
+                            "email address."
+                        ),
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            invitation.rejected_by = request.user
+            invitation.rejected_at = timezone.now()
+
+            # Set your REJECTED ConfigChoice here
+            # invitation.status = rejected_status
+
+            invitation.save(
+                update_fields=[
+                    "rejected_by",
+                    "rejected_at",
+                    # "status",
+                ]
+            )
+
+        return Response(
+            {
+                "data": {},
+                "message": "Project invitation rejected successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"(?P<token>[^/.]+)/cancel",
+        permission_classes=[IsAuthenticated],
+    )
+    def cancel(self, request, token):
+        try:
+            invitation = Invitations.objects.select_related(
+                "role",
+                "status",
+            ).get(
+                token=token,
+                is_deleted=False,
+            )
+        except Invitations.DoesNotExist:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Invitation not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Only the person who sent the invitation can cancel it
+        if invitation.invited_by_id != request.user.id:
+            return Response(
+                {
+                    "data": {},
+                    "message": "You do not have permission to cancel this invitation.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if invitation.accepted_at:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Accepted invitations cannot be cancelled.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if invitation.rejected_at:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Rejected invitations cannot be cancelled.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if invitation.expires_at < timezone.now():
+            return Response(
+                {
+                    "data": {},
+                    "message": "Expired invitations cannot be cancelled.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Set your CANCELLED ConfigChoice here
+        # invitation.status = cancelled_status
+
+        invitation.save(
+            update_fields=[
+                # "status",
+            ]
+        )
+
+        return Response(
+            {
+                "data": {},
+                "message": "Project invitation cancelled successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    import secrets
+    from datetime import timedelta
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"(?P<token>[^/.]+)/resend",
+        permission_classes=[IsAuthenticated],
+    )
+    def resend(self, request, token):
+        try:
+            invitation = Invitations.objects.select_related(
+                "invited_by",
+                "role",
+            ).get(
+                token=token,
+                is_deleted=False,
+            )
+        except Invitations.DoesNotExist:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Invitation not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Only sender can resend
+        if invitation.invited_by_id != request.user.id:
+            return Response(
+                {
+                    "data": {},
+                    "message": "You do not have permission to resend this invitation.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if invitation.accepted_at:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Accepted invitations cannot be resent.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if invitation.rejected_at:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Rejected invitations cannot be resent.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate a new token
+        invitation.token = secrets.token_urlsafe(48)
+
+        # Extend expiry
+        invitation.expires_at = timezone.now() + timedelta(days=7)
+
+        invitation.save(
+            update_fields=[
+                "token",
+                "expires_at",
+            ]
+        )
+
+        # Send email again
+        send_project_invitation_email(invitation)
+
+        return Response(
+            {
+                "data": {
+                    "email": invitation.email,
+                    "expires_at": invitation.expires_at,
+                },
+                "message": "Project invitation resent successfully.",
             },
             status=status.HTTP_200_OK,
         )

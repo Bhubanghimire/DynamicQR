@@ -445,7 +445,7 @@ class VideoDeleteSerializer(serializers.Serializer):
 
 class ProjectInvitationSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    role = serializers.CharField()
+    role = serializers.UUIDField()
 
     def validate_email(self, value):
         return value.strip().lower()

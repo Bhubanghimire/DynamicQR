@@ -120,7 +120,20 @@ class Invitations(SoftDeletable):
         on_delete=models.SET_NULL,
         related_name="invitations_accepted",
     )
+    rejected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    rejected_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="invitations_rejected",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
 
     class Meta:
         indexes = [
