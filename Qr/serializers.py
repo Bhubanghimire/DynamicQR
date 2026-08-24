@@ -533,3 +533,32 @@ class ProjectInvitationSerializer(serializers.Serializer):
             status=pending_status,
             expires_at=timezone.now() + timedelta(days=7),
         )
+
+
+class ProjectInvitationDetailSerializer(serializers.ModelSerializer):
+    project_name = serializers.SerializerMethodField()
+    invited_by_name = serializers.SerializerMethodField()
+    role_name = serializers.CharField(
+        source="role.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Invitations
+        fields = [
+            "email",
+            "project_name",
+            "invited_by_name",
+            "role_name",
+            "status",
+            "expires_at",
+        ]
+
+    def get_project_name(self, obj):
+        return obj.content_object.name
+
+    def get_invited_by_name(self, obj):
+        return (
+            obj.invited_by.get_full_name()
+            or obj.invited_by.email
+        )

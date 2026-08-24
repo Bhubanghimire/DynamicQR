@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 from django.db import transaction
 from uuid import UUID
 from django.conf import settings
@@ -16,7 +18,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from accounts.authentication import JWTAuthentication
 from django.db.models import Count, Q, Max
-from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign
+from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -26,7 +28,7 @@ from Qr.serializers import (
     QRCodeDuplicateRequestSerializer,
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
-    VideoUpdateSerializer, ProjectInvitationSerializer,
+    VideoUpdateSerializer, ProjectInvitationSerializer, ProjectInvitationDetailSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -783,3 +785,181 @@ class VideoViewSet(viewsets.ViewSet):
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
+
+
+
+from rest_framework import status, viewsets
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+
+
+class ProjectInvitationViewSet(viewsets.GenericViewSet):
+    permission_classes = [AllowAny]
+    serializer_class = ProjectInvitationSerializer
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"(?P<token>[^/.]+)",
+    )
+    def invitation_detail(self, request, token):
+        try:
+            invitation = Invitations.objects.select_related(
+                "invited_by",
+                "role",
+                "status",
+            ).get(
+                token=token,
+                is_deleted=False,
+            )
+        except Invitations.DoesNotExist:
+            return Response(
+                {
+                    "data": {},
+                    "message": "Invitation not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if invitation.expires_at < timezone.now():
+            return Response(
+                {
+                    "data": {},
+                    "message": "This invitation has expired.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ProjectInvitationDetailSerializer(
+            invitation
+        )
+
+        return Response(
+            {
+                "data": serializer.data,
+                "message": "Invitation fetched successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"(?P<token>[^/.]+)/accept",
+        permission_classes=[IsAuthenticated],
+    )
+    def accept(self, request, token):
+        with transaction.atomic():
+            try:
+                invitation = (
+                    Invitations.objects
+                    .select_for_update()
+                    .select_related(
+                        "invited_by",
+                        "role",
+                        "status",
+                    )
+                    .get(
+                        token=token,
+                        is_deleted=False,
+                    )
+                )
+            except Invitations.DoesNotExist:
+                return Response(
+                    {
+                        "data": {},
+                        "message": "Invitation not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Check expiry
+            if invitation.expires_at < timezone.now():
+                return Response(
+                    {
+                        "data": {},
+                        "message": "This invitation has expired.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Check whether already accepted
+            if invitation.accepted_at:
+                return Response(
+                    {
+                        "data": {},
+                        "message": "This invitation has already been accepted.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Make sure the invitation belongs to this user's email
+            if invitation.email.lower() != request.user.email.lower():
+                return Response(
+                    {
+                        "data": {},
+                        "message": (
+                            "This invitation was sent to a different "
+                            "email address."
+                        ),
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            project = invitation.content_object
+
+            content_type = ContentType.objects.get_for_model(
+                Project
+            )
+
+            # Check existing permission
+            existing_permission = SharePermissions.objects.filter(
+                user_id=request.user,
+                content_type=content_type,
+                resource_id=project.id,
+                is_deleted=False,
+            ).first()
+
+            if existing_permission:
+                return Response(
+                    {
+                        "data": {},
+                        "message": "You are already a member of this project.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Create project permission
+            permission = SharePermissions.objects.create(
+                user_id=request.user,
+                content_type=content_type,
+                resource_id=project.id,
+                role=invitation.role,
+            )
+
+            # Mark invitation as accepted
+            invitation.accepted_by = request.user
+            invitation.accepted_at = timezone.now()
+
+            # Set accepted status here
+            # invitation.status = accepted_status
+
+            invitation.save(
+                update_fields=[
+                    "accepted_by",
+                    "accepted_at",
+                    # "status",
+                ]
+            )
+
+        return Response(
+            {
+                "data": {
+                    "project_id": str(project.id),
+                    "permission_id": str(permission.id),
+                    "role": invitation.role.name,
+                },
+                "message": "Project invitation accepted successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
