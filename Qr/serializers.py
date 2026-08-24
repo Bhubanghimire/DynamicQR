@@ -471,6 +471,11 @@ class VideoDeleteSerializer(serializers.Serializer):
 class ProjectInvitationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     role = serializers.UUIDField()
+    project_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=True,
+        allow_empty=False,
+    )
 
     def validate_email(self, value):
         return value.strip().lower()
@@ -489,29 +494,59 @@ class ProjectInvitationSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        project = self.context["project"]
         email = attrs["email"]
+        project_ids = attrs["project_ids"]
 
         user = User.objects.filter(
             email__iexact=email,
             is_deleted=False,
         ).first()
 
+        projects = list(
+            Project.objects.filter(
+                id__in=project_ids,
+                owner=self.context["request"].user,
+                is_deleted=False,
+            )
+        )
+
+        found_ids = {str(item.id) for item in projects}
+        missing_ids = [str(project_id) for project_id in project_ids if str(project_id) not in found_ids]
+        if missing_ids:
+            raise serializers.ValidationError(
+                {
+                    "project_ids": "One or more projects were not found or you do not have access to them."
+                }
+            )
+
+        # Keep a stable unique list while preserving order.
+        seen_ids = set()
+        unique_projects = []
+        for item in projects:
+            if item.id in seen_ids:
+                continue
+            seen_ids.add(item.id)
+            unique_projects.append(item)
+
+        self._projects = unique_projects
+
         # Existing member check
         if user:
             content_type = ContentType.objects.get_for_model(Project)
 
-            already_member = SharePermissions.objects.filter(
-                user_id=user,
-                content_type=content_type,
-                resource_id=project.id,
-                is_deleted=False,
-            ).exists()
+            already_member_project_ids = list(
+                SharePermissions.objects.filter(
+                    user_id=user,
+                    content_type=content_type,
+                    resource_id__in=[item.id for item in unique_projects],
+                    is_deleted=False,
+                ).values_list("resource_id", flat=True)
+            )
 
-            if already_member:
+            if already_member_project_ids:
                 raise serializers.ValidationError(
                     {
-                        "email": "This user is already a member of the project."
+                        "email": "This user is already a member of one or more selected projects."
                     }
                 )
 
@@ -521,7 +556,7 @@ class ProjectInvitationSerializer(serializers.Serializer):
         pending_invitation = Invitations.objects.filter(
             email__iexact=email,
             content_type=content_type,
-            resource_id=project.id,
+            resource_id__in=[item.id for item in unique_projects],
             status__name__iexact="pending",
             is_deleted=False,
         ).exists()
@@ -536,7 +571,9 @@ class ProjectInvitationSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        project = self.context["project"]
+        projects = getattr(self, "_projects", None)
+        if not projects:
+            raise serializers.ValidationError({"project_ids": "At least one project is required."})
         role = getattr(self, "_role", None)
 
         if role is None:
@@ -548,16 +585,24 @@ class ProjectInvitationSerializer(serializers.Serializer):
                 {"status": "Pending invitation status is not configured."}
             )
 
-        return Invitations.objects.create(
-            email=validated_data["email"],
-            content_type=ContentType.objects.get_for_model(Project),
-            resource_id=project.id,
-            role=role,
-            token=uuid4().hex,
-            invited_by=self.context["request"].user,
-            status=pending_status,
-            expires_at=timezone.now() + timedelta(days=7),
-        )
+        invitations = []
+        content_type = ContentType.objects.get_for_model(Project)
+
+        for project in projects:
+            invitations.append(
+                Invitations.objects.create(
+                    email=validated_data["email"],
+                    content_type=content_type,
+                    resource_id=project.id,
+                    role=role,
+                    token=uuid4().hex,
+                    invited_by=self.context["request"].user,
+                    status=pending_status,
+                    expires_at=timezone.now() + timedelta(days=7),
+                )
+            )
+
+        return invitations[0] if len(invitations) == 1 else invitations
 
 
 class ProjectInvitationDetailSerializer(serializers.ModelSerializer):

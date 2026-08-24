@@ -205,6 +205,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     authentication_classes = [JWTAuthentication]
     model = Project
     permission_classes = [IsAuthenticated]
+    lookup_value_regex = r"[0-9a-fA-F-]{36}"
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
     serializer_class = ProjectSerializer
@@ -795,10 +796,47 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
     serializer_class = ProjectInvitationSerializer
     queryset = Project.objects.all()
 
+    @action(detail=False, methods=["POST"], url_path="invitations")
+    def invitations(self, request, *args, **kwargs):
+        
+        serializer = ProjectInvitationSerializer(
+            data=request.data,
+            context={
+                "request": request,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+
+        invitations = serializer.save(
+            invited_by=request.user,
+        )
+        if not isinstance(invitations, list):
+            invitations = [invitations]
+
+        for invitation in invitations:
+            send_project_invitation_email(invitation)
+
+        return Response(
+            {
+                "data": [
+                    {
+                        "id": invitation.id,
+                        "email": invitation.email,
+                        "project_id": invitation.resource_id,
+                        "role": invitation.role.name,
+                        "status": invitation.status.name,
+                    }
+                    for invitation in invitations
+                ],
+                "message": "Project invitation sent successfully.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(
         detail=False,
         methods=["get"],
-        url_path=r"(?P<token>[^/.]+)",
+        url_path=r"details/(?P<token>[^/.]+)",
     )
     def invitation_detail(self, request, token):
         try:
@@ -963,37 +1001,6 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["post"], url_path="invitations")
-    def invitations(self, request, *args, **kwargs):
-        project = self.get_object()
-
-        serializer = ProjectInvitationSerializer(
-            data=request.data,
-            context={
-                "request": request,
-                "project": project,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-
-        invitation = serializer.save(
-            invited_by=request.user,
-            project=project,
-        )
-        send_project_invitation_email(invitation)
-
-        return Response(
-            {
-                "data": {
-                    "id": invitation.id,
-                    "email": invitation.email,
-                    "role": invitation.role.name,
-                    "status": invitation.status.name,
-                },
-                "message": "Project invitation sent successfully.",
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
     @action(
         detail=False,
