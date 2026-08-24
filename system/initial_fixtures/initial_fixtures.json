@@ -27,6 +27,24 @@
         }
     },
     {
+        "model": "system.ConfigCategory",
+        "pk": "6623d351-43e6-4415-949b-776d9e99b2a8",
+        "fields": {
+            "name": "invitation_status",
+            "description": "invitation status",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigCategory",
+        "pk": "fedd94e8-3706-4033-926f-d8a42de04fee",
+        "fields": {
+            "name": "sharing_permission",
+            "description": "sharing permission",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
         "model": "system.ConfigChoice",
         "pk": "b120114c-70ea-4a46-8845-72b291182fe5",
         "fields": {
@@ -241,5 +259,100 @@
             "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
+    },
+
+    {
+        "model": "system.ConfigChoice",
+        "pk": "3e946721-e802-4a24-a0cb-d77847e018ee",
+        "fields": {
+            "name": "Pending",
+            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "image": null,
+            "status": true,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": "12f2f830-ee34-4eba-a067-90ee0d50bccd",
+        "fields": {
+            "name": "Accepted",
+            "category_id": "6623d351-43e6-4415-949b-776d9e99b2a8",
+            "image": null,
+            "status": true,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": "60cfb5b8-93b8-40c5-94e5-1d963d186698",
+        "fields": {
+            "name": "Rejected",
+            "category_id": "6623d351-43e6-4415-949b-776d9e99b2a8",
+            "image": null,
+            "status": true,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": "3d18d940-42e2-4f54-9801-8b05a06d0c3a",
+        "fields": {
+            "name": "Cancelled",
+            "category_id": "6623d351-43e6-4415-949b-776d9e99b2a8",
+            "image": null,
+            "status": true,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+
+    },
+
+    {
+        "model": "system.ConfigChoice",
+        "pk": "ee0e5fd6-d545-4dc2-849c-bbc947369b09",
+        "fields": {
+            "name": "Admin",
+            "category_id": "fedd94e8-3706-4033-926f-d8a42de04fee",
+            "image": null,
+            "status": false,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+
+    },
+
+    {
+        "model": "system.ConfigChoice",
+        "pk": "c608bf89-edc8-448b-9622-8e0d5f8bec3e",
+        "fields": {
+            "name": "Edit",
+            "category_id": "fedd94e8-3706-4033-926f-d8a42de04fee",
+            "image": null,
+            "status": true,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+
+    },
+
+    {
+        "model": "system.ConfigChoice",
+        "pk": "55edb26f-47ca-4444-8321-e4e22e8922f4",
+        "fields": {
+            "name": "View",
+            "category_id": "fedd94e8-3706-4033-926f-d8a42de04fee",
+            "image": null,
+            "status": true,
+            "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
+            "created_at": "2026-05-03T06:41:11.567Z"
+        }
+
     }
+
+
+
 ]

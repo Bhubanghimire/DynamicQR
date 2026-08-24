@@ -48,6 +48,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 class QRCodeSerializer(serializers.ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    permission = serializers.SerializerMethodField()
 
     class Meta:
         model = QRCode
@@ -73,6 +74,30 @@ class QRCodeSerializer(serializers.ModelSerializer):
         design_data = QRDesign.objects.filter(qr_code=instance).first()
         representation['json_data'] = QRDesignSerializer(design_data).data
         return representation
+
+    def get_permission(self, obj):
+        request = self.context.get("request")
+        if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
+            return None
+
+        if obj.created_by_id == request.user.id:
+            return "edit"
+
+        content_type = ContentType.objects.get_for_model(QRCode)
+        shared_permission = SharePermissions.objects.filter(
+            user_id=request.user,
+            content_type=content_type,
+            resource_id=obj.id,
+            is_deleted=False,
+        ).select_related("role").first()
+
+        if shared_permission is None:
+            return None
+
+        role_name = (shared_permission.role.name or "").strip().lower()
+        if "view" in role_name:
+            return "view"
+        return "edit"
 
 
 class QRCodeDataSerializer(serializers.ModelSerializer):
@@ -387,7 +412,7 @@ class ProjectDetailSerializer(ProjectSerializer):
         pass
 
     def get_qrcodes(self, obj):
-        qrcodes = QRCode.objects.filter(project=obj, created_by=obj.owner)
+        qrcodes = QRCode.objects.filter(project=obj, is_deleted=False)
         return QRCodeSerializer(qrcodes, many=True).data
 
 

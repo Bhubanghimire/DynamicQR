@@ -35,6 +35,8 @@ from Qr.serializers import (
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
 from analytics.services.tracker import AnalyticsTracker
+from system.models import ConfigChoice
+
 
 class ProjectSchema(PaginatedAutoSchema):
     def get_tags(self, path, method):
@@ -320,11 +322,24 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="qrs")
     def qrs(self, request, *args, **kwargs):
         project = self.get_object()
-        qrcodes = QRCode.objects.filter(project=project, is_deleted=False).order_by("name")
+        content_type = ContentType.objects.get_for_model(QRCode)
+        shared_qr_ids = SharePermissions.objects.filter(
+            user_id=request.user,
+            content_type=content_type,
+            is_deleted=False,
+            resource_id__isnull=False,
+        ).values_list("resource_id", flat=True)
+
+        qrcodes = QRCode.objects.filter(
+            project=project,
+            is_deleted=False,
+        ).filter(
+            Q(created_by=request.user) | Q(id__in=shared_qr_ids)
+        ).order_by("name")
         qrcodes = self.filter_queryset(qrcodes)
         paginator = CustomPagination()
         page = paginator.paginate_queryset(qrcodes, request, view=self)
-        serializer = QRCodeSerializer(page, many=True)
+        serializer = QRCodeSerializer(page, many=True, context={"request": request})
         response = paginator.get_paginated_response(serializer.data)
         response.data["message"] = "Project QR codes fetched successfully."
         return response
@@ -925,13 +940,14 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
             invitation.accepted_at = timezone.now()
 
             # Set accepted status here
-            # invitation.status = accepted_status
+            accepted_status = ConfigChoice.objects.get(id="12f2f830-ee34-4eba-a067-90ee0d50bccd")
+            invitation.status = accepted_status
 
             invitation.save(
                 update_fields=[
                     "accepted_by",
                     "accepted_at",
-                    # "status",
+                    "status",
                 ]
             )
 
@@ -1053,13 +1069,14 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
             invitation.rejected_at = timezone.now()
 
             # Set your REJECTED ConfigChoice here
-            # invitation.status = rejected_status
+            rejected_status = ConfigChoice.objects.get(id="60cfb5b8-93b8-40c5-94e5-1d963d186698")
+            invitation.status = rejected_status
 
             invitation.save(
                 update_fields=[
                     "rejected_by",
                     "rejected_at",
-                    # "status",
+                    "status",
                 ]
             )
 
@@ -1133,11 +1150,12 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
             )
 
         # Set your CANCELLED ConfigChoice here
-        # invitation.status = cancelled_status
+        cancelled_status = ConfigChoice.objects.get(id="3d18d940-42e2-4f54-9801-8b05a06d0c3a")
+        invitation.status = cancelled_status
 
         invitation.save(
             update_fields=[
-                # "status",
+                "status",
             ]
         )
 
