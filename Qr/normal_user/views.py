@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from accounts.authentication import JWTAuthentication
+from accounts.models import User
 from django.db.models import Count, Q, Max
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions
 from Qr.serializers import (
@@ -831,6 +832,102 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 "message": "Project invitation sent successfully.",
             },
             status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="my-invitations",
+        permission_classes=[IsAuthenticated],
+    )
+    def my_invitations(self, request, *args, **kwargs):
+        invitations = (
+            Invitations.objects.select_related(
+                "invited_by",
+                "role",
+                "status",
+                "content_type",
+            )
+            .filter(
+                email__iexact=request.user.email,
+                is_deleted=False,
+            )
+            .order_by("-created_at")
+        )
+
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(invitations, request, view=self)
+        serializer = ProjectInvitationDetailSerializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["message"] = "User invitations fetched successfully."
+        return response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="sent-invitations",
+        permission_classes=[IsAuthenticated],
+    )
+    def sent_invitations(self, request, *args, **kwargs):
+        invitations = (
+            Invitations.objects.select_related(
+                "invited_by",
+                "role",
+                "status",
+                "content_type",
+            )
+            .filter(
+                invited_by=request.user,
+                is_deleted=False,
+            )
+            .order_by("-created_at")
+        )
+
+        grouped = []
+        group_index = {}
+
+        for invitation in invitations:
+            receiver = User.objects.filter(
+                email__iexact=invitation.email,
+                is_deleted=False,
+            ).first()
+            key = (invitation.email.lower(), str(invitation.role_id))
+            if key not in group_index:
+                group_index[key] = len(grouped)
+                grouped.append(
+                    {
+                        "email": invitation.email,
+                        "receiver_name": receiver.get_full_name() if receiver else None,
+                        "role_name": invitation.role.name,
+                        "project_count": 0,
+                        "projects": [],
+                        "status": invitation.status.name if invitation.status else None,
+                        "status_details": [],
+                    }
+                )
+
+            current = grouped[group_index[key]]
+            current["project_count"] += 1
+            current["projects"].append(
+                {
+                    "project_id": str(invitation.resource_id),
+                    "project_name": invitation.content_object.name,
+                }
+            )
+            current["status_details"].append(
+                {
+                    "status": invitation.status.name if invitation.status else None,
+                    "created_at": invitation.created_at,
+                    "expires_at": invitation.expires_at,
+                }
+            )
+
+        return Response(
+            {
+                "data": grouped,
+                "message": "Sender invitations fetched successfully.",
+            },
+            status=status.HTTP_200_OK,
         )
 
     @action(

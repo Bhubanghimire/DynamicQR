@@ -615,22 +615,28 @@ class ProjectInvitationSerializer(serializers.Serializer):
 
 
 class ProjectInvitationDetailSerializer(serializers.ModelSerializer):
+    project_id = serializers.UUIDField(source="resource_id", read_only=True)
     project_name = serializers.SerializerMethodField()
     invited_by_name = serializers.SerializerMethodField()
+    invited_by_email = serializers.EmailField(source="invited_by.email", read_only=True)
     role_name = serializers.CharField(
         source="role.name",
         read_only=True,
     )
+    created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Invitations
         fields = [
+            "project_id",
             "email",
             "project_name",
             "invited_by_name",
+            "invited_by_email",
             "role_name",
             "status",
             "expires_at",
+            "created_at",
         ]
 
     def get_project_name(self, obj):
