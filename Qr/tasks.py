@@ -1,7 +1,38 @@
 from celery import shared_task
+from django.db import transaction
+from django.utils import timezone
+from openpyxl import load_workbook
 
 from .models import QRImportJob
 
+def get_importer(qr_type):
+    qr_type_name = qr_type.id
+    print(qr_type_name, str(qr_type_name) == "221426fb-63e6-4bd3-9d7a-1729d5b53fa5")
+
+
+    if str(qr_type_name) == "221426fb-63e6-4bd3-9d7a-1729d5b53fa5":
+        from .importers.wifi import WiFiImporter
+
+        return WiFiImporter()
+
+    if qr_type_name == "GOOGLE_MAPS":
+        from .importers.google_maps import GoogleMapsImporter
+
+        return GoogleMapsImporter()
+
+    if qr_type_name == "WHATSAPP":
+        from .importers.whatsapp import WhatsAppImporter
+
+        return WhatsAppImporter()
+
+    if qr_type_name == "SOCIAL_MEDIA":
+        from .importers.social_media import SocialMediaImporter
+
+        return SocialMediaImporter()
+
+    raise ValueError(
+        f"Bulk import is not supported for QR type: {qr_type.name}"
+    )
 
 @shared_task
 def process_qr_import(import_job_id):
@@ -10,21 +41,167 @@ def process_qr_import(import_job_id):
             id=import_job_id
         )
 
-        # Actual Excel processing will be implemented next.
-        #
-        # For now:
-        #
-        # 1. Read Excel
-        # 2. Validate headers
-        # 3. Validate maximum 100 rows
-        # 4. Select QR-type importer
-        # 5. Create QRCode
-        # 6. Create QRCodeData
-        # 7. Update progress
+        # TODO:
+        # Get PROCESSING status from ConfigChoice
+        # import_job.status = processing_status
 
-        print(
-            f"Processing QR import job: {import_job.id}"
+        import_job.started_at = timezone.now()
+        import_job.save(
+            update_fields=["started_at", "updated_at"]
+        )
+
+        # Load Excel
+        workbook = load_workbook(
+            import_job.file.path,
+            read_only=True,
+            data_only=True,
+        )
+
+        worksheet = workbook.active
+
+        rows = list(worksheet.iter_rows(values_only=True))
+
+        if not rows:
+            raise ValueError("Excel file is empty.")
+
+        headers = [
+            str(header).strip()
+            if header is not None
+            else ""
+            for header in rows[0]
+        ]
+
+        data_rows = rows[1:]
+
+        # Maximum 100 data rows
+        if len(data_rows) > 100:
+            raise ValueError(
+                "Excel file cannot contain more than 100 rows."
+            )
+
+        import_job.total_rows = len(data_rows)
+        import_job.save(
+            update_fields=[
+                "total_rows",
+                "updated_at",
+            ]
+        )
+
+        # Get importer based on QR type
+        print("🔥 Getting importer")
+        importer = get_importer(import_job.qr_type)
+
+        print("🔥 Importer obtained:", importer)
+
+        # Validate Excel headers
+        print("🔥 Headers:", headers)
+        print("🔥 Starting header validation")
+
+        importer.validate_headers(headers)
+
+        print("🔥 Header validation completed")
+
+        # Process rows
+        print("🔥 Number of data rows:", len(data_rows))
+
+        # Process rows
+        for index, row_values in enumerate(
+                data_rows,
+                start=2,
+        ):
+            try:
+                row = dict(
+                    zip(headers, row_values)
+                )
+
+                print(f"🔥 Processing row {index}: {row}")
+
+                with transaction.atomic():
+                    importer.process_row(
+                        row=row,
+                        job=import_job,
+                        row_number=index,
+                    )
+
+                import_job.successful_rows += 1
+
+                print(f"✅ Row {index} processed successfully")
+
+            except Exception as exc:
+                print(
+                    f"❌ Row {index} failed: {repr(exc)}"
+                )
+
+                import_job.failed_rows += 1
+
+                if not import_job.error_details:
+                    import_job.error_details = []
+
+                import_job.error_details.append(
+                    {
+                        "row": index,
+                        "error": str(exc),
+                    }
+                )
+
+            import_job.processed_rows += 1
+
+            if import_job.total_rows > 0:
+                import_job.progress = int(
+                    (
+                            import_job.processed_rows
+                            / import_job.total_rows
+                    ) * 100
+                )
+            else:
+                import_job.progress = 100
+
+            import_job.save(
+                update_fields=[
+                    "processed_rows",
+                    "successful_rows",
+                    "failed_rows",
+                    "progress",
+                    "error_details",
+                    "updated_at",
+                ]
+            )
+
+        # Import completed
+        import_job.completed_at = timezone.now()
+        import_job.progress = 100
+
+        import_job.save(
+            update_fields=[
+                "completed_at",
+                "progress",
+                "updated_at",
+            ]
         )
 
     except QRImportJob.DoesNotExist:
         return
+
+    except ValueError as exc:
+        QRImportJob.objects.filter(
+            id=import_job_id
+        ).update(
+            error_message=str(exc),
+            completed_at=timezone.now(),
+        )
+        return
+
+    except Exception as exc:
+        print(
+            f"❌ QR import job {import_job_id} failed: "
+            f"{repr(exc)}"
+        )
+
+        QRImportJob.objects.filter(
+            id=import_job_id
+        ).update(
+            error_message=str(exc),
+            completed_at=timezone.now(),
+        )
+
+        raise

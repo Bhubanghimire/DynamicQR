@@ -1461,12 +1461,36 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
             file=file,
         )
 
-        # Queue background processing
-        process_qr_import(str(import_job.id))
+        try:
+            # Queue background processing
+            process_qr_import(str(import_job.id))
+        except ValueError as exc:
+            return Response(
+                {
+                    "data": {
+                        "job_id": str(import_job.id),
+                        "error": str(exc),
+                    },
+                    "msg": "Import failed.",
+                    "status": "error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                {
+                    "data": {
+                        "job_id": str(import_job.id),
+                        "error": str(exc),
+                    },
+                    "msg": "Import failed.",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(
             {
-                "job_id": str(import_job.id),
                 "data": {
                     "job_id": str(import_job.id),
                     "status": pending_status.name,
