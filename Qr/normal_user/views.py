@@ -39,7 +39,6 @@ from Qr.serializers import (
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
-from analytics.services.tracker import AnalyticsTracker
 from system.models import ConfigChoice
 
 
@@ -560,26 +559,6 @@ class QRCodeViewSet(viewsets.ModelViewSet):
                 return Response({"data":{"password_enabled":True}, "message": "Password enabled."}, status=status.HTTP_400_BAD_REQUEST)
             if password_ui != password_saved:
                 return Response({"data":False, "message": "Wrong password."}, status=status.HTTP_400_BAD_REQUEST)
-
-        request_data = {
-            "ip": self._get_client_ip(request),
-            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
-            "referer": request.META.get("HTTP_REFERER", ""),
-            "language": request.META.get("HTTP_ACCEPT_LANGUAGE", ""),
-            "screen_width": request.query_params.get("sw"),
-            "screen_height": request.query_params.get("sh"),
-        }
-
-        try:
-            AnalyticsTracker(qr=qr_code, request_data=request_data).process(suppress_exceptions=False)
-        except ValidationError:
-            return Response(
-                {
-                    "data": ["Scan limit reached for this QR code."],
-                    "msg": "Scan limit reached for this QR code.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         serializer = self.get_serializer(qr_code)
         return Response(
