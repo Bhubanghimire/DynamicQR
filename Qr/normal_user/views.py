@@ -162,6 +162,30 @@ class ProjectSchema(PaginatedAutoSchema):
             }
         return super().get_request_body(path, method)
 
+
+class InvitationSchema(PaginatedAutoSchema):
+    def get_description(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action == "sent_invitations":
+            return "List invitations sent by the authenticated user. Use the optional `status` query parameter to filter by invitation status name."
+        if action == "my_invitations":
+            return "List invitations received by the authenticated user."
+        return super().get_description(path, method)
+
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if getattr(self.view, "action", None) == "sent_invitations":
+            params.append(
+                {
+                    "name": "status",
+                    "required": False,
+                    "in": "query",
+                    "description": "Filter sender invitations by invitation status name.",
+                    "schema": {"type": "string"},
+                }
+            )
+        return params
+
 def send_project_invitation_email(invitation):
     invitation_url = (
         f"{settings.FRONTEND_URL}"
@@ -793,6 +817,7 @@ from rest_framework.response import Response
 
 
 class ProjectInvitationViewSet(viewsets.GenericViewSet):
+    schema = InvitationSchema()
     permission_classes = [AllowAny]
     serializer_class = ProjectInvitationSerializer
     queryset = Project.objects.all()
@@ -855,6 +880,10 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
             .order_by("-created_at")
         )
 
+        status_id = request.query_params.get("status")
+        if status_id:
+            invitations = invitations.filter(status_id=status_id)
+
         paginator = CustomPagination()
         page = paginator.paginate_queryset(invitations, request, view=self)
         serializer = ProjectInvitationDetailSerializer(page, many=True)
@@ -882,6 +911,10 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
             )
             .order_by("-created_at")
         )
+
+        status_name = request.query_params.get("status")
+        if status_name:
+            invitations = invitations.filter(status__name__iexact=status_name)
 
         grouped = []
         group_index = {}
@@ -912,6 +945,8 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 {
                     "project_id": str(invitation.resource_id),
                     "project_name": invitation.content_object.name,
+                    "token": invitation.token,
+                    "status": invitation.status.name if invitation.status else None,
                 }
             )
             current["status_details"].append(
@@ -922,13 +957,11 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 }
             )
 
-        return Response(
-            {
-                "data": grouped,
-                "message": "Sender invitations fetched successfully.",
-            },
-            status=status.HTTP_200_OK,
-        )
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(grouped, request, view=self)
+        response = paginator.get_paginated_response(page)
+        response.data["message"] = "Sender invitations fetched successfully."
+        return response
 
     @action(
         detail=False,

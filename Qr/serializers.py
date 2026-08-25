@@ -615,6 +615,7 @@ class ProjectInvitationSerializer(serializers.Serializer):
 
 
 class ProjectInvitationDetailSerializer(serializers.ModelSerializer):
+    token = serializers.CharField(read_only=True)
     project_id = serializers.UUIDField(source="resource_id", read_only=True)
     project_name = serializers.SerializerMethodField()
     invited_by_name = serializers.SerializerMethodField()
@@ -623,11 +624,13 @@ class ProjectInvitationDetailSerializer(serializers.ModelSerializer):
         source="role.name",
         read_only=True,
     )
+    status = serializers.CharField(source="status.name", read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Invitations
         fields = [
+            "token",
             "project_id",
             "email",
             "project_name",
