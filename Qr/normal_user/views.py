@@ -35,6 +35,7 @@ from Qr.serializers import (
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
     VideoUpdateSerializer, ProjectInvitationSerializer, ProjectInvitationDetailSerializer, QRImportJobUploadSerializer,
+    QRImportJobStatusSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -92,6 +93,8 @@ class ProjectSchema(PaginatedAutoSchema):
         action = getattr(self.view, "action", None)
         if action == "scan":
             return QRCodeBundleSerializer()
+        if getattr(self.view, "basename", None) == "import" and action == "import_status":
+            return QRImportJobStatusSerializer()
         return super().get_response_serializer(path, method)
 
     def get_request_body(self, path, method):
@@ -170,6 +173,30 @@ class ProjectSchema(PaginatedAutoSchema):
             return {
                 "content": {
                     "multipart/form-data": {"schema": item_schema}
+                }
+            }
+        if getattr(self.view, "basename", None) == "import" and action == "import_status":
+            serializer = self.get_response_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, QRImportJobStatusSerializer) else {}
+            return {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "data": item_schema,
+                                "msg": {
+                                    "type": "string",
+                                    "example": "Import job status retrieved successfully.",
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "example": "success",
+                                },
+                            },
+                            "required": ["data", "msg", "status"],
+                        }
+                    }
                 }
             }
         return super().get_request_body(path, method)
@@ -1440,8 +1467,37 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         return Response(
             {
                 "job_id": str(import_job.id),
-                "status": pending_status.name,
-                "message": "Import has been queued successfully.",
+                "data": {
+                    "job_id": str(import_job.id),
+                    "status": pending_status.name,
+                },
+                "msg": "Import has been queued successfully.",
+                "status": "success",
             },
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="status",
+    )
+    def import_status(self, request, pk=None):
+        try:
+            import_job = QRImportJob.objects.get(
+                id=pk,
+                user=request.user,
+            )
+        except QRImportJob.DoesNotExist:
+            raise NotFound("Import job not found.")
+
+        serializer = QRImportJobStatusSerializer(import_job)
+
+        return Response(
+            {
+                "data": serializer.data,
+                "msg": "Import job status retrieved successfully.",
+                "status": "success",
+            },
+            status=status.HTTP_200_OK,
         )

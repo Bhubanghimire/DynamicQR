@@ -51,3 +51,51 @@ class InvitationsAdmin(admin.ModelAdmin):
 @admin.register(SharePermissions)
 class SharePermissionsAdmin(admin.ModelAdmin):
     list_display = ['id', "user_id", "created_at", "updated_at"]
+
+
+
+from django.contrib import admin
+
+from .models import QRImportJob
+
+
+@admin.register(QRImportJob)
+class QRImportJobAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "project",
+        "qr_type",
+        "status",
+        "total_rows",
+        "processed_rows",
+        "successful_rows",
+        "failed_rows",
+        "progress",
+        "created_at",
+        "started_at",
+        "completed_at",
+    )
+
+    list_filter = (
+        "status",
+        "qr_type",
+        "project",
+        "created_at",
+    )
+
+    search_fields = (
+        "id",
+        "user__email",
+        "project__name",
+    )
+
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "started_at",
+        "completed_at",
+    )
+
+    ordering = ("-created_at",)

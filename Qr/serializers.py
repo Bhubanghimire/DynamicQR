@@ -695,3 +695,29 @@ class QRImportJobUploadSerializer(serializers.Serializer):
         attrs["qr_type"] = qr_type
 
         return attrs
+
+
+class QRImportJobStatusSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(source="status.name", read_only=True)
+    qr_type = serializers.CharField(source="qr_type.name", read_only=True)
+    project = serializers.CharField(source="project.name", read_only=True)
+
+    class Meta:
+        model = QRImportJob
+        fields = [
+            "id",
+            "project",
+            "qr_type",
+            "status",
+            "total_rows",
+            "processed_rows",
+            "successful_rows",
+            "failed_rows",
+            "progress",
+            "error_details",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "created_at",
+        ]
+        read_only_fields = fields
