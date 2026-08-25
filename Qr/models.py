@@ -199,3 +199,100 @@ class MediaItem(SoftDeletable):
 
         class Meta:
             ordering = ["sort_order"]
+
+
+
+
+
+
+class QRImportJob(SoftDeletable):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.RESTRICT,
+        related_name="qr_import_jobs",
+    )
+
+    project = models.ForeignKey(
+        "Project",
+        on_delete=models.RESTRICT,
+        blank=True,
+        null=True,
+        related_name="qr_import_jobs",
+    )
+
+    qr_type = models.ForeignKey(
+        ConfigChoice,
+        on_delete=models.RESTRICT,
+        related_name="qr_import_jobs",
+    )
+
+    file = models.FileField(
+        upload_to="qr_imports/%Y/%m/%d/",
+    )
+
+    status = models.ForeignKey(
+        ConfigChoice,
+        on_delete=models.RESTRICT,
+        related_name="qr_import_statuse",
+    )
+
+    total_rows = models.PositiveIntegerField(
+        default=0,
+    )
+
+    processed_rows = models.PositiveIntegerField(
+        default=0,
+    )
+
+    successful_rows = models.PositiveIntegerField(
+        default=0,
+    )
+
+    failed_rows = models.PositiveIntegerField(
+        default=0,
+    )
+
+    progress = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Import progress percentage from 0 to 100.",
+    )
+
+    error_details = models.JSONField(
+        default=list,
+        blank=True,
+    )
+
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+    )
+
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["project", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.project.name} - {self.qr_type} - {self.status}"
+

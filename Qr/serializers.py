@@ -650,3 +650,48 @@ class ProjectInvitationDetailSerializer(serializers.ModelSerializer):
             obj.invited_by.get_full_name()
             or obj.invited_by.email
         )
+
+
+from rest_framework import serializers
+
+from .models import Project, QRCode, QRImportJob
+from system.models import ConfigChoice
+
+
+class QRImportJobUploadSerializer(serializers.Serializer):
+    qr_type_id = serializers.UUIDField()
+    file = serializers.FileField()
+
+    def validate_file(self, file):
+        filename = file.name.lower()
+
+        if not filename.endswith((".xlsx", ".xls")):
+            raise serializers.ValidationError(
+                "Only Excel files (.xlsx or .xls) are allowed."
+            )
+
+        # Optional safety limit: 5 MB
+        max_size = 5 * 1024 * 1024
+
+        if file.size > max_size:
+            raise serializers.ValidationError(
+                "Excel file size cannot exceed 5 MB."
+            )
+
+        return file
+
+    def validate(self, attrs):
+        qr_type_id = attrs["qr_type_id"]
+
+        try:
+            qr_type = ConfigChoice.objects.get(
+                id=qr_type_id,
+            )
+        except ConfigChoice.DoesNotExist:
+            raise serializers.ValidationError({
+                "qr_type_id": "Invalid QR type."
+            })
+
+        attrs["qr_type"] = qr_type
+
+        return attrs

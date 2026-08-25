@@ -10,5 +10,5 @@ class ConfigCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(ConfigChoice)
 class ConfigChoiceAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name')
+    list_display = ('id',"category", 'name')
     list_filter = ('category',)

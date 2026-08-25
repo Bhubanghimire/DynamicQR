@@ -18,10 +18,13 @@ from DynamicOCR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+
+from Qr.tasks import process_qr_import
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
-from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions
+from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
+    QRImportJob
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -31,7 +34,7 @@ from Qr.serializers import (
     QRCodeDuplicateRequestSerializer,
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
-    VideoUpdateSerializer, ProjectInvitationSerializer, ProjectInvitationDetailSerializer,
+    VideoUpdateSerializer, ProjectInvitationSerializer, ProjectInvitationDetailSerializer, QRImportJobUploadSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -158,6 +161,15 @@ class ProjectSchema(PaginatedAutoSchema):
             return {
                 "content": {
                     "application/json": {"schema": item_schema}
+                }
+            }
+        if getattr(self.view, "basename", None) == "import" and action == "create":
+            self.request_media_types = ["multipart/form-data"]
+            serializer = self.get_request_serializer(path, method)
+            item_schema = self.get_reference(serializer) if isinstance(serializer, QRImportJobUploadSerializer) else {}
+            return {
+                "content": {
+                    "multipart/form-data": {"schema": item_schema}
                 }
             }
         return super().get_request_body(path, method)
@@ -1384,4 +1396,52 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 "message": "Project invitation resent successfully.",
             },
             status=status.HTTP_200_OK,
+        )
+
+
+
+
+
+
+class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
+    serializer_class = QRImportJobUploadSerializer
+    parser_classes = [MultiPartParser, FormParser]
+    schema = ProjectSchema()
+
+    def create(self, request, *args, **kwargs):
+        serializer = QRImportJobUploadSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+
+
+        serializer.is_valid(raise_exception=True)
+
+        qr_type = serializer.validated_data["qr_type"]
+        file = serializer.validated_data["file"]
+
+        # Get PENDING status from ConfigChoice
+
+        pending_status = ConfigChoice.objects.get(
+            id="f1f4c191-dadd-43a3-8cba-b021485c418c",
+        )
+
+        import_job = QRImportJob.objects.create(
+            user=request.user,
+            project=None,
+            qr_type=qr_type,
+            status=pending_status,
+            file=file,
+        )
+
+        # Queue background processing
+        process_qr_import(str(import_job.id))
+
+        return Response(
+            {
+                "job_id": str(import_job.id),
+                "status": pending_status.name,
+                "message": "Import has been queued successfully.",
+            },
+            status=status.HTTP_202_ACCEPTED,
         )
