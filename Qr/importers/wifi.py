@@ -30,4 +30,3 @@ class WiFiImporter(BaseQRImporter):
         qr_type = job.qr_type
 
         qr= QRCode.objects.create(name=qr_name, qr_type=qr_type,created_by=job.user)
-        print("it is created", qr)
