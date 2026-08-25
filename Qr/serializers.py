@@ -73,6 +73,8 @@ class QRCodeSerializer(serializers.ModelSerializer):
         representation["qr_type"] = StatusSummarySerializer(instance.qr_type).data
         design_data = QRDesign.objects.filter(qr_code=instance).first()
         representation['json_data'] = QRDesignSerializer(design_data).data
+        template = TemplateDesign.objects.filter(qr_code=instance).first()
+        representation["template_id"] = str(template.id) if template else None
         return representation
 
     def get_permission(self, obj):
@@ -133,6 +135,8 @@ class QrMediaSerializer(serializers.ModelSerializer):
 
 
 class QRDesignSerializer(serializers.ModelSerializer):
+    template_id = serializers.SerializerMethodField()
+
     class Meta:
         model = QRDesign
         exclude = ["is_deleted", "deleted_at"]
@@ -143,6 +147,9 @@ class QRDesignSerializer(serializers.ModelSerializer):
         # representation["pattern_style"] = StatusSummarySerializer(instance.pattern_style).data
         # representation["frame"] = StatusSummarySerializer(instance.frame).data if instance.frame else None
         return representation
+
+    def get_template_id(self, obj):
+        return obj.template_id
 
 
 class QRCodeSummarySerializer(serializers.ModelSerializer):
@@ -171,6 +178,8 @@ class QRCodeSummarySerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation["qr_type"] = StatusSummarySerializer(instance.qr_type).data
+        obj = TemplateDesign.objects.filter(qr_code=instance).first()
+        representation["template_id"] = obj.id if obj else None
         # design_data = QRDesign.objects.filter(qr_code=instance).first()
         # representation['json_data'] = QRDesignSerializer(design_data).data
         return representation
@@ -423,10 +432,37 @@ class ProjectQRActionSerializer(serializers.Serializer):
 
 class TemplateDesignSerializer(serializers.ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    qr_code = serializers.UUIDField(required=False, allow_null=True)
 
     class Meta:
         model = TemplateDesign
         exclude = ["is_deleted", "deleted_at"]
+
+    def _resolve_qr_code(self, qr_code_id):
+        if qr_code_id in (None, ""):
+            return None
+        try:
+            return QRCode.objects.get(id=qr_code_id)
+        except QRCode.DoesNotExist:
+            raise serializers.ValidationError({"qr_code": "QR code not found."})
+
+    def create(self, validated_data):
+        qr_code_id = validated_data.pop("qr_code", None)
+        qr_code = self._resolve_qr_code(qr_code_id)
+        validated_data["qr_code"] = qr_code
+        print(qr_code)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "qr_code" in validated_data:
+            qr_code_id = validated_data.pop("qr_code")
+            instance.qr_code = self._resolve_qr_code(qr_code_id)
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["qr_code"] = str(instance.qr_code_id) if instance.qr_code_id else None
+        return representation
 
 
 

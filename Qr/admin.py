@@ -1,5 +1,5 @@
 from django.contrib import admin
-from Qr.models import QRCode, Project, QRCodeData, QRDesign, QRSchedule, QRScanSetting, QrMedia, MediaItem, Invitations, SharePermissions
+from Qr.models import QRCode, Project, QRCodeData, QRDesign, QRSchedule, QRScanSetting, QrMedia, MediaItem, Invitations, SharePermissions, TemplateDesign
 
 
 # Register your models here.
@@ -99,3 +99,9 @@ class QRImportJobAdmin(admin.ModelAdmin):
     )
 
     ordering = ("-created_at",)
+
+@admin.register(TemplateDesign)
+class TemplateDesignAdmin(admin.ModelAdmin):
+    list_display = (
+        "id","qr_code","created_at","updated_at",
+    )

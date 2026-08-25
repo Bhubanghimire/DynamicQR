@@ -80,6 +80,7 @@ class TemplateDesign(SoftDeletable):
     design_data = models.JSONField()
     status = models.BooleanField(default=True)
     is_public = models.BooleanField(default=True)
+    qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE, null=True, blank=True)
     created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
 
 
