@@ -439,7 +439,7 @@ class ProjectQRActionSerializer(serializers.Serializer):
 
 class TemplateDesignSerializer(serializers.ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
-    qr_code = serializers.UUIDField(required=False, allow_null=True)
+    # qr_code = serializers.UUIDField(required=False, allow_null=True)
 
     class Meta:
         model = TemplateDesign
@@ -468,7 +468,11 @@ class TemplateDesignSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["qr_code"] = str(instance.qr_code_id) if instance.qr_code_id else None
+        representation["qr_code"] = (
+            {"id":instance.qr_code_id, "name":instance.qr_code.name}
+            if instance.qr_code_id
+            else None
+        )
         return representation
 
 
