@@ -13,14 +13,14 @@ class VideoImporter(BaseQRImporter):
 
     def process_row(self, row, job, row_number):
         qr_name = row.get("QrName")
-        wifi_name = row.get("WifiName")
+        page_title = row.get("page_title")
         password = row.get("password")
 
         if not qr_name:
             raise ValueError("QrName is required.")
 
-        if not wifi_name:
-            raise ValueError("WifiName is required.")
+        if not page_title:
+            raise ValueError("Page title is required.")
 
         if password is None or password == "":
             raise ValueError("password is required.")
