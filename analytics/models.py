@@ -78,7 +78,7 @@ class ScanEvent(models.Model):
         default="",
     )
     language = models.CharField(
-        max_length=20,
+        max_length=200,
         blank=True,
     )
     country_code = models.CharField(
