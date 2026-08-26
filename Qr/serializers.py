@@ -211,6 +211,8 @@ class QRCodeBundleSerializer(serializers.Serializer):
 
     def to_internal_value(self, data):
         data = data.copy()
+        # Pass the parent instance through so unchanged unique fields are allowed on update.
+        self.fields["QRCode"].instance = self.instance
         aliases = {
             "qr_code": "QRCode",
             "qr_code_data": "QRCodeData",

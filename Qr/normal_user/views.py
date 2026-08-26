@@ -491,7 +491,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                {"data": serializer.errors, "message": "Validation error."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         qr_code = serializer.save()
         return Response(
             {"data": self.get_serializer(qr_code).data, "message": "QR code created successfully."},
@@ -502,7 +506,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                {"data": serializer.errors, "message": "Validation error."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         qr_code = serializer.save()
         return Response(
             {"data": self.get_serializer(qr_code).data, "message": "QR code updated successfully."},
