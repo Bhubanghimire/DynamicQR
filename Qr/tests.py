@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from Qr.models import Invitations, Project
+from Qr.models import QRCode, QRScanSetting
 from system.models import ConfigCategory, ConfigChoice
 
 
@@ -110,3 +111,46 @@ class ProjectInvitationReceiverListTests(TestCase):
         response = self.client.get("/api/v1.1/user/project-invitation/my-invitations/")
 
         self.assertEqual(response.status_code, 401)
+
+
+class QRCodeListTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="qr-user@example.com",
+            password="password123",
+            full_name="QR User",
+            phone="4444444444",
+        )
+
+        self.qr_category = ConfigCategory.objects.create(
+            name="QR Type",
+            description="QR type category",
+        )
+        self.qr_type = ConfigChoice.objects.create(
+            category=self.qr_category,
+            name="Website",
+            status=True,
+        )
+
+        self.qr_code = QRCode.objects.create(
+            name="List QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            status=True,
+        )
+        QRScanSetting.objects.create(
+            qr_code=self.qr_code,
+            domain="https://example.com",
+        )
+
+    def test_qr_list_includes_domain_name(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get("/api/v1.1/user/qr/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["data"])
+        self.assertEqual(response.data["data"][0]["domain_name"], "https://example.com")

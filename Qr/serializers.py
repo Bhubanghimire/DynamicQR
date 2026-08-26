@@ -49,6 +49,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 class QRCodeSerializer(serializers.ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
     permission = serializers.SerializerMethodField()
+    domain_name = serializers.SerializerMethodField()
 
     class Meta:
         model = QRCode
@@ -67,6 +68,10 @@ class QRCodeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A QR code with this link name already exists.")
 
         return value
+
+    def get_domain_name(self, obj):
+        scan_setting = QRScanSetting.objects.filter(qr_code=obj).first()
+        return scan_setting.domain if scan_setting else None
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
