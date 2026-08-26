@@ -13,6 +13,18 @@ import os
 from pathlib import Path
 from decouple import config
 import dj_database_url
+import environ
+
+# Initialise environment variables
+env = environ.Env(
+    DEBUG=(bool, True),  # set casting, default value
+    SERVER_NAME=(str, 'dev'),
+    REDIS=(bool, False),
+    REDIS_URL=(str, 'redis://localhost:6379/0'),
+    APP_PORT=(str, '8000'),
+    DAPHNE_PORT=(str, ''),
+)
+environ.Env.read_env() 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -124,7 +136,7 @@ LOGIN_REDIRECT_URL = config(
 #     "https://dev-qrnepal.vercel.app/auth/google/callback",
 #     "https://qrnepal.vercel.app/auth/google/callback",
 # ]
-GOOGLE_FRONTEND_CALLBACK = "http://localhost:5173/auth/google/callback"
+GOOGLE_FRONTEND_CALLBACK = "https://qrpac.vercel.app/auth/google/callback"
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
 CORS_ALLOWED_ORIGINS = [
@@ -133,7 +145,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
-    "https://qrnepal.vercel.app",
+    "https://qrpack.vercel.app",
     "https://less-approach-farming-cultures.trycloudflare.com",
     "https://dev-qrnepal.vercel.app"
 
@@ -146,7 +158,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://localhost:3000",
     "http://localhost:5173",
     "http://localhost:4173",
-    "https://cs-qrgen.vercel.app",
+    "https://qrpack.vercel.app",
     "https://qrnepal.vercel.app",
     "https://dev-qrnepal.vercel.app",
     "https://less-approach-farming-cultures.trycloudflare.com"
@@ -192,9 +204,12 @@ WSGI_APPLICATION = 'DynamicOCR.wsgi.application'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
 DATABASES = {
+    'default': env.db()  # psql://user:pass@127.0.0.1:8458/db
+}
+DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        **env.db(),  # Loads DATABASE_URL from environment
+        'CONN_MAX_AGE': 0,  # Reuse connections for 300 seconds
     }
 }
 #postgresql://username:password@localhost:5432/mydatabase
