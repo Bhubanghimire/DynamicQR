@@ -68,7 +68,8 @@ INSTALLED_APPS = [
     'system',
     'accounts',
     'Qr',
-    'analytics'
+    'analytics',
+    "subscriptions"
 ]
 
 SITE_ID = 1
