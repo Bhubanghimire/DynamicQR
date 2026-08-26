@@ -430,8 +430,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         return queryset.filter(created_by=self.request.user)
 
     def _get_client_ip(self, request):
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        x_real_ip = request.META.get("HTTP_X_REAL_IP")
+        if x_real_ip:
+            return x_real_ip.strip()
 
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if x_forwarded_for:
             return x_forwarded_for.split(",")[0].strip()
 
@@ -572,8 +575,18 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             qr_code = self._get_qr_by_identifier(kwargs.get("pk"))
         except QRCode.DoesNotExist:
             raise NotFound()
+
+        client_ip = self._get_client_ip(request)
+
+        print("====================================")
+        print("REMOTE_ADDR:", request.META.get("REMOTE_ADDR"))
+        print("X-REAL-IP:", request.META.get("HTTP_X_REAL_IP"))
+        print("X-FORWARDED-FOR:", request.META.get("HTTP_X_FORWARDED_FOR"))
+        print("FINAL CLIENT IP:", client_ip)
+        print("====================================")
+
         request_data = {
-            "ip": self._get_client_ip(request),
+            "ip": client_ip,
             "user_agent": request.META.get("HTTP_USER_AGENT", ""),
             "referer": request.META.get("HTTP_REFERER", ""),
             "language": request.META.get("HTTP_ACCEPT_LANGUAGE", ""),
@@ -581,22 +594,22 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             "screen_height": request.query_params.get("sh"),
         }
 
-        # Queue analytics
-        # track_scan.delay(
-        #     qr_id=qr_code.id,
-        #     request_data=request_data,
-        # )
+        print("REQUEST DATA:", request_data)
+
         track_scan(
             qr_id=qr_code.id,
             request_data=request_data,
         )
 
         serializer = self.get_serializer(qr_code)
+
         return Response(
-            {"data": serializer.data, "message": "QR Scan fetched successfully."},
+            {
+                "data": serializer.data,
+                "message": "QR Scan fetched successfully."
+            },
             status=status.HTTP_200_OK,
         )
-
     @action(detail=True, methods=["post"], url_path="duplicate")
     def duplicate(self, request, *args, **kwargs):
         source_qr = self.get_object()
