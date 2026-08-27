@@ -35,6 +35,11 @@ def get_importer(qr_type):
 
         return WhatsappImporter()
 
+    if str(qr_type_name) == "c5cf8fdb-6a63-4143-9a91-53b15b70a97e":
+        from .importers.website import WebsiteImporter
+
+        return WebsiteImporter()
+
     raise ValueError(
         f"Bulk import is not supported for QR type: {qr_type.name}"
     )
