@@ -1,5 +1,6 @@
 from .base import BaseQRImporter
 from ..models import QRCode, QRCodeData
+import re
 
 
 class LandingPageImporter(BaseQRImporter):
@@ -9,25 +10,11 @@ class LandingPageImporter(BaseQRImporter):
     required_columns = [
         "QrName",
         "Title",
-        "Item1Title",
-        "Item1Content",
-        "Item2Title",
-        "Item2Url",
     ]
 
     def process_row(self, row, job, row_number):
         qr_name = row.get("QrName")
         title = row.get("Title")
-
-        item1_title = row.get("Item1Title")
-        item1_content = row.get("Item1Content")
-        item1_type = row.get("Item1Type")
-        item1_order_no = row.get("Item1OrderNo")
-
-        item2_title = row.get("Item2Title")
-        item2_url = row.get("Item2Url")
-        item2_type = row.get("Item2Type")
-        item2_order_no = row.get("Item2OrderNo")
 
         bg_color = row.get("BgColor")
         button_color = row.get("ButtonColor")
@@ -40,18 +27,6 @@ class LandingPageImporter(BaseQRImporter):
         if not title:
             raise ValueError("Title is required.")
 
-        if not item1_title:
-            raise ValueError("Item1Title is required.")
-
-        if not item1_content:
-            raise ValueError("Item1Content is required.")
-
-        if not item2_title:
-            raise ValueError("Item2Title is required.")
-
-        if not item2_url:
-            raise ValueError("Item2Url is required.")
-
         def parse_int(value, field_name):
             if value in (None, ""):
                 return None
@@ -59,6 +34,48 @@ class LandingPageImporter(BaseQRImporter):
                 return int(value)
             except (TypeError, ValueError):
                 raise ValueError(f"{field_name} must be an integer.")
+
+        item_pattern = re.compile(r"^Item(\d+)(Title|Content|Url|Type|OrderNo)$")
+        grouped_items = {}
+        for key, value in row.items():
+            match = item_pattern.match(key or "")
+            if not match:
+                continue
+            item_no = int(match.group(1))
+            field = match.group(2)
+            grouped_items.setdefault(item_no, {})[field] = value
+
+        items = []
+        for item_no in sorted(grouped_items):
+            item_data = grouped_items[item_no]
+            title_value = item_data.get("Title")
+            content_value = item_data.get("Content")
+            url_value = item_data.get("Url")
+            item_type = item_data.get("Type")
+            order_no = parse_int(item_data.get("OrderNo"), f"Item{item_no}OrderNo") or item_no
+
+            if not title_value:
+                raise ValueError(f"Item{item_no}Title is required.")
+
+            if not content_value and not url_value:
+                raise ValueError(
+                    f"Item{item_no}Content or Item{item_no}Url is required."
+                )
+
+            item = {
+                "id": f"lp-item-{item_no}",
+                "type": item_type or ("button" if url_value else "text"),
+                "order_no": order_no,
+                "title": title_value,
+            }
+            if content_value:
+                item["content"] = content_value
+            if url_value:
+                item["url"] = url_value
+            items.append(item)
+
+        if not items:
+            raise ValueError("At least one item is required.")
 
         qr_type = job.qr_type
 
@@ -74,22 +91,7 @@ class LandingPageImporter(BaseQRImporter):
             "bg_color": bg_color or "#F8FAFC",
             "button_color": button_color or "#2563EB",
             "button_corners": button_corners or "rounded",
-            "items": [
-                {
-                    "id": "lp-item-1",
-                    "type": item1_type or "text",
-                    "order_no": parse_int(item1_order_no, "Item1OrderNo") or 1,
-                    "title": item1_title,
-                    "content": item1_content,
-                },
-                {
-                    "id": "lp-item-2",
-                    "type": item2_type or "button",
-                    "order_no": parse_int(item2_order_no, "Item2OrderNo") or 2,
-                    "title": item2_title,
-                    "url": item2_url,
-                },
-            ],
+            "items": items,
         }
 
         QRCodeData.objects.create(
@@ -98,5 +100,10 @@ class LandingPageImporter(BaseQRImporter):
         )
 
 
-WiFiImporter = LandingPageImporter
-#   QrName,Title,Item1Title,Item1Content,Item2Title,Item2Url,Item1Type,Item1OrderNo,Item2Type,Item2OrderNo,BgColor,ButtonColor,ThemeId,ButtonCorners
+# Required:
+#   QrName,Title
+#
+# Item columns are parsed dynamically:
+#   Item1Title, Item1Content or Item1Url, Item1Type, Item1OrderNo
+#   Item2Title, Item2Content or Item2Url, Item2Type, Item2OrderNo
+#   ...
