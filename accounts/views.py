@@ -212,11 +212,8 @@ class AuthViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data['email']
         generated_otp = generate_otp()
-        check_status = OTP.objects.filter(email=email)
-        if check_status.exists():
-            check_status.update(otp=generated_otp)
-        else:
-            OTP.objects.create(email=email, otp=generated_otp)
+        OTP.objects.filter(email=email).delete()
+        OTP.objects.create(email=email, otp=generated_otp)
         context = {
             'title': 'Otp',
             'content': generated_otp,
@@ -282,6 +279,7 @@ class AuthViewSet(viewsets.ViewSet):
 
             user.set_password(data['new_password'])
             user.save()
+            check_otp.delete()
             return Response({'message': 'Done'})
         else:
             return Response({'message': 'Otp is not matched'}, status=status.HTTP_400_BAD_REQUEST)
