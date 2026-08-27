@@ -1,5 +1,6 @@
 from .base import BaseQRImporter
 from ..models import QRCode, QRCodeData
+from datetime import date, datetime, time
 
 
 class EventImporter(BaseQRImporter):
@@ -68,6 +69,13 @@ class EventImporter(BaseQRImporter):
 
         qr_type = job.qr_type
 
+        def to_json_value(value):
+            if isinstance(value, (datetime, date)):
+                return value.isoformat()
+            if isinstance(value, time):
+                return value.isoformat()
+            return value
+
         def as_bool(value):
             if isinstance(value, bool):
                 return value
@@ -86,10 +94,10 @@ class EventImporter(BaseQRImporter):
             "title": title,
             "description": description,
             "is_multi_day": as_bool(is_multi_day),
-            "start_date": start_date,
-            "start_time": start_time,
-            "end_date": end_date,
-            "end_time": end_time,
+            "start_date": to_json_value(start_date),
+            "start_time": to_json_value(start_time),
+            "end_date": to_json_value(end_date),
+            "end_time": to_json_value(end_time),
             "address": address,
             "registration_url": registration_url,
             "button_label": button_label,
@@ -145,4 +153,3 @@ class EventImporter(BaseQRImporter):
 #   - MapUrl
 #   - OrganizerLogo
 #   - OrganizerInfo
-

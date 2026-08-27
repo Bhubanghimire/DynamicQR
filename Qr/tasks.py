@@ -7,7 +7,7 @@ from .models import QRImportJob
 
 def get_importer(qr_type):
     qr_type_name = qr_type.id
-    print(qr_type_name, str(qr_type_name) == "221426fb-63e6-4bd3-9d7a-1729d5b53fa5")
+    print(qr_type_name, str(qr_type_name) == "c5e4c79e-6679-4ef6-ac1c-4b10b7ebbf62")
 
 
     if str(qr_type_name) == "221426fb-63e6-4bd3-9d7a-1729d5b53fa5":
@@ -20,10 +20,10 @@ def get_importer(qr_type):
 
         return EmailImporter()
 
-    if qr_type_name == "WHATSAPP":
-        from .importers.whatsapp import WhatsAppImporter
+    if str(qr_type_name) == "c5e4c79e-6679-4ef6-ac1c-4b10b7ebbf62":
+        from .importers.events import EventImporter
 
-        return WhatsAppImporter()
+        return EventImporter()
 
     if qr_type_name == "SOCIAL_MEDIA":
         from .importers.social_media import SocialMediaImporter
