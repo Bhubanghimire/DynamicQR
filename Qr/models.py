@@ -231,6 +231,8 @@ class QRImportJob(SoftDeletable):
         upload_to="qr_imports/%Y/%m/%d/",
     )
 
+    design_data = models.JSONField(null=True, blank=True)
+
     status = models.ForeignKey(
         ConfigChoice,
         on_delete=models.RESTRICT,
@@ -296,4 +298,3 @@ class QRImportJob(SoftDeletable):
 
     def __str__(self):
         return f"{self.project.name} - {self.qr_type} - {self.status}"
-

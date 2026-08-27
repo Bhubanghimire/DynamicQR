@@ -126,6 +126,7 @@ class SocialMediaImporter(BaseQRImporter):
                 "items": items,
             },
         )
+        self.create_design(qr, job)
 
 
 WiFiImporter = SocialMediaImporter

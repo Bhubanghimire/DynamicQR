@@ -26,3 +26,15 @@ class BaseQRImporter:
         row_number,
     ):
         raise NotImplementedError
+
+    def create_design(self, qr_code, job):
+        design_data = getattr(job, "design_data", None)
+        if not design_data:
+            return None
+
+        from ..models import QRDesign
+
+        return QRDesign.objects.create(
+            qr_code=qr_code,
+            design_data=design_data,
+        )

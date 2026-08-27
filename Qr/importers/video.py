@@ -106,3 +106,4 @@ class VideoImporter(BaseQRImporter):
                 },
             },
         )
+        self.create_design(qr, job)

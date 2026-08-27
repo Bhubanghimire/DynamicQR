@@ -56,6 +56,6 @@ class WiFiImporter(BaseQRImporter):
                                                 ]
                                                 }
         )
-
+        self.create_design(qr, job)
 
 

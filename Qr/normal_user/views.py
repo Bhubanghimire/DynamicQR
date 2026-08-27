@@ -1448,6 +1448,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
 
         qr_type = serializer.validated_data["qr_type"]
         project = serializer.validated_data["project"]
+        design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
         # Get PENDING status from ConfigChoice
@@ -1462,6 +1463,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
             qr_type=qr_type,
             status=pending_status,
             file=file,
+            design_data=design_data,
         )
 
         try:

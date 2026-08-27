@@ -34,3 +34,4 @@ class WhatsappImporter(BaseQRImporter):
                                     "phone_number": f"{phone_number}",
                                     "pre_filled_message": f"{pre_filled_message}"
                                     })
+        self.create_design(qr, job)

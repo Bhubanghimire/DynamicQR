@@ -708,6 +708,7 @@ from system.models import ConfigChoice
 class QRImportJobUploadSerializer(serializers.Serializer):
     qr_type_id = serializers.UUIDField()
     project_id = serializers.UUIDField(required=False, allow_null=True)
+    design_data = serializers.JSONField(required=False, allow_null=True)
     file = serializers.FileField()
 
     def validate_file(self, file):
@@ -752,6 +753,8 @@ class QRImportJobUploadSerializer(serializers.Serializer):
                 })
         else:
             attrs["project"] = None
+
+        attrs["design_data"] = attrs.get("design_data")
 
         return attrs
 

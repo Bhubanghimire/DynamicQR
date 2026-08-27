@@ -33,3 +33,4 @@ class WiFiImporter(BaseQRImporter):
                                   content_json={"ssid": f'{qr_name}', "security": "WPA", "password": f'{password}', "theme": "wifi-1", "button_color": "#009DE2",
          "button_corners": "rounded", "page_style": {"theme": "wifi-1", "color": "#009DE2", "corner_style": "rounded"}}
         )
+        self.create_design(qr, job)

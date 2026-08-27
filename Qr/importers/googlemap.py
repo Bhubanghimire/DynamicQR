@@ -66,3 +66,4 @@ class GoogleMapImporter(BaseQRImporter):
             qr_code=qr,
             content_json=content_json,
         )
+        self.create_design(qr, job)
