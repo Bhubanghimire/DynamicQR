@@ -37,7 +37,7 @@ class SocialMediaImporter(BaseQRImporter):
                 return value.strip().lower() in {"1", "true", "yes", "y", "on"}
             return bool(value)
 
-        item_pattern = re.compile(r"^Social(\d+)(Type|Title|Url|OrderNo|Value|Platform)$")
+        item_pattern = re.compile(r"^Social(\d+)(Type|Title|Url|Value|Platform|OrderNo)$")
         grouped_items = {}
         for key, value in row.items():
             if key is None:
@@ -55,24 +55,27 @@ class SocialMediaImporter(BaseQRImporter):
             item_type = item.get("Type")
             item_title = item.get("Title")
             item_url = item.get("Url")
-            item_order_no = item.get("OrderNo")
             item_value = item.get("Value")
             item_platform = item.get("Platform")
+            item_order_no = item.get("OrderNo")
 
             if (
                 item_type in (None, "")
                 and item_title in (None, "")
                 and item_url in (None, "")
-                and item_order_no in (None, "")
                 and item_value in (None, "")
                 and item_platform in (None, "")
+                and item_order_no in (None, "")
             ):
                 continue
+
+            if not item_type:
+                raise ValueError(f"Social{index}Type is required.")
 
             if not item_title:
                 raise ValueError(f"Social{index}Title is required.")
 
-            if not item_url and not item_value:
+            if item_url in (None, "") and item_value in (None, ""):
                 raise ValueError(f"Social{index}Url or Social{index}Value is required.")
 
             try:
@@ -82,18 +85,18 @@ class SocialMediaImporter(BaseQRImporter):
 
             social_item = {
                 "id": f"social-{index}",
-                "type": item_type or "link",
+                "type": item_type,
                 "order_no": parsed_order_no,
                 "title": item_title,
             }
 
-            if item_url:
+            if item_url not in (None, ""):
                 social_item["url"] = item_url
 
-            if item_value:
+            if item_value not in (None, ""):
                 social_item["value"] = item_value
 
-            if item_platform:
+            if item_platform not in (None, ""):
                 social_item["platform"] = item_platform
 
             items.append(social_item)
@@ -106,23 +109,21 @@ class SocialMediaImporter(BaseQRImporter):
             created_by=job.user,
         )
 
-        content_json = {
-            "header_image": header_image or "/media/header.png",
-            "display_name": display_name or "",
-            "bio": bio or "",
-            "is_multiple": as_bool(is_multiple),
-            "platform": platform or "instagram",
-            "profile_url": profile_url or "",
-            "fallback_url": fallback_url or "",
-            "theme_id": theme_id or "social-1",
-            "button_color": button_color or "#009DE2",
-            "button_corners": button_corners or "rounded",
-            "items": items,
-        }
-
         QRCodeData.objects.create(
             qr_code=qr,
-            content_json=content_json,
+            content_json={
+                "header_image": header_image or "/media/header.png",
+                "display_name": display_name or "",
+                "bio": bio or "",
+                "is_multiple": as_bool(is_multiple),
+                "platform": platform or "instagram",
+                "profile_url": profile_url or "",
+                "fallback_url": fallback_url or "",
+                "theme_id": theme_id or "social-1",
+                "button_color": button_color or "#009DE2",
+                "button_corners": button_corners or "rounded",
+                "items": items,
+            },
         )
 
 

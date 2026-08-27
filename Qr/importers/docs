@@ -1,0 +1,67 @@
+• Here are the required and optional headers split cleanly for each file.
+
+  events.py
+  Required:
+
+  QrName,Title,Description,StartDate,StartTime,EndDate,EndTime,Address,RegistrationUrl,ButtonLabel
+
+  Optional:
+
+  CoverImage,IsMultiDay,MapUrl,OrganizerLogo,OrganizerInfo
+
+  landing_page.py
+  Required:
+
+  QrName,Title,Item1Title,Item1Content,Item2Title,Item2Url
+
+  Optional:
+
+  Item1Type,Item1OrderNo,Item2Type,Item2OrderNo,BgColor,ButtonColor,ThemeId,ButtonCorners
+
+  pdf.py
+  Required:
+
+  QrName,PageTitle,Pdf1Name,Pdf1Title,Pdf1Description
+
+  Optional:
+
+  PageSubtitle,CoverImage,ThemeId,BgColor,ButtonColor,ButtonCorners,Pdf2Name,Pdf2Title,Pdf2Description,Pdf3Name,Pdf3Title,Pdf3Description,...
+
+  product.py
+  Required:
+
+  QrName,Product1Name,Product1Brand,Product1Description
+
+  Optional:
+
+  PageTitle,ThemeId,BgColor,ButtonColor,ButtonCorners,Product1Availability,Product1Label,Product1ContactType,Product1ContactValue,Product1Image,Product1DownloadCatalog,Product2Name,Product2Brand,Produc
+  t2Description,Product2Availability,Product2Label,Product2ContactType,Product2ContactValue,Product2Image,Product2DownloadCatalog,...
+
+  social_media.py
+  Required:
+
+  QrName,Social1Type,Social1Title,Social1Url
+
+  Optional:
+
+  HeaderImage,DisplayName,Bio,IsMultiple,Platform,ProfileUrl,FallbackUrl,ThemeId,ButtonColor,ButtonCorners,Social1Value,Social1Platform,Social1OrderNo,Social2Type,Social2Title,Social2Url,Social2Value,S
+  ocial2Platform,Social2OrderNo,...
+
+  vcard.py
+  Required:
+
+  QrName,FirstName,LastName,Item1Type,Item1Title,Item1Value
+
+  Optional:
+
+  Title,Company,Bio,AvatarUrl,CoverUrl,ThemeId,ButtonColor,ButtonCorners,Item1OrderNo,Item2Type,Item2Title,Item2Value,Item2OrderNo,Item3Type,Item3Title,Item3Value,Item3OrderNo,...
+
+  video.py
+  Required:
+
+  QrName,page_title
+
+  Optional:
+
+
+
