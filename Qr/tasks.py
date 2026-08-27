@@ -25,10 +25,10 @@ def get_importer(qr_type):
 
         return EventImporter()
 
-    if qr_type_name == "SOCIAL_MEDIA":
-        from .importers.social_media import SocialMediaImporter
+    if str(qr_type_name) == "6a16a631-895d-4aa0-b072-ca9cc26a6981":
+        from .importers.googlemap import GoogleMapImporter
 
-        return SocialMediaImporter()
+        return GoogleMapImporter()
 
     raise ValueError(
         f"Bulk import is not supported for QR type: {qr_type.name}"
