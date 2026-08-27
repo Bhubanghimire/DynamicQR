@@ -15,10 +15,10 @@ def get_importer(qr_type):
 
         return WiFiImporter()
 
-    if qr_type_name == "GOOGLE_MAPS":
-        from .importers.google_maps import GoogleMapsImporter
+    if str(qr_type_name) == "80fe2eb5-3a8b-4049-bd21-96bbfd39e6e1":
+        from .importers.email import EmailImporter
 
-        return GoogleMapsImporter()
+        return EmailImporter()
 
     if qr_type_name == "WHATSAPP":
         from .importers.whatsapp import WhatsAppImporter
