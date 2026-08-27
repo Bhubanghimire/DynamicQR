@@ -119,4 +119,3 @@ class VCardImporter(BaseQRImporter):
         )
 
 
-WiFiImporter = VCardImporter

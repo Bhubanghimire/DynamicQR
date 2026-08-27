@@ -124,4 +124,3 @@ class ProductImporter(BaseQRImporter):
         )
 
 
-WiFiImporter = ProductImporter
