@@ -54,19 +54,14 @@ class RegisterSerializer(serializers.ModelSerializer):
         ]
 
 
-class ForgetPasswordSerializer(serializers.ModelSerializer):
+class ForgetPasswordSerializer(serializers.Serializer):
     otp = serializers.CharField(max_length=6)
     new_password = serializers.CharField(write_only=True)
 
-    class Meta:
-        model = OTP
-        fields = ["email", "otp", "new_password"]
 
-
-class OtpVerifySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OTP
-        fields = ["email", "otp"]
+class OtpVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
 
 
 class ChangePasswordSerializer(serializers.Serializer):
