@@ -707,6 +707,7 @@ from system.models import ConfigChoice
 
 class QRImportJobUploadSerializer(serializers.Serializer):
     qr_type_id = serializers.UUIDField()
+    project_id = serializers.UUIDField(required=False, allow_null=True)
     file = serializers.FileField()
 
     def validate_file(self, file):
@@ -740,6 +741,17 @@ class QRImportJobUploadSerializer(serializers.Serializer):
             })
 
         attrs["qr_type"] = qr_type
+
+        project_id = attrs.get("project_id")
+        if project_id is not None:
+            try:
+                attrs["project"] = Project.objects.get(id=project_id)
+            except Project.DoesNotExist:
+                raise serializers.ValidationError({
+                    "project_id": "Invalid project."
+                })
+        else:
+            attrs["project"] = None
 
         return attrs
 

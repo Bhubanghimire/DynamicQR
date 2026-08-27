@@ -44,6 +44,7 @@ class GoogleMapImporter(BaseQRImporter):
             name=qr_name,
             qr_type=job.qr_type,
             created_by=job.user,
+            project=job.project,
         )
 
         content_json = {

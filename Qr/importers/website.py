@@ -23,6 +23,6 @@ class WebsiteImporter(BaseQRImporter):
 
         qr_type = job.qr_type
 
-        qr= QRCode.objects.create(name=qr_name, qr_type=qr_type,created_by=job.user)
+        qr= QRCode.objects.create(name=qr_name, qr_type=qr_type,created_by=job.user, project=job.project)
         QRCodeData.objects.create(qr_code=qr,
                                   content_json={"url": f"{url}"})

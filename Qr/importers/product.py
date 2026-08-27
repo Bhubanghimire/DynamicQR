@@ -107,6 +107,7 @@ class ProductImporter(BaseQRImporter):
             name=qr_name,
             qr_type=qr_type,
             created_by=job.user,
+            project=job.project,
         )
 
         content_json = {
@@ -122,5 +123,4 @@ class ProductImporter(BaseQRImporter):
             qr_code=qr,
             content_json=content_json,
         )
-
 

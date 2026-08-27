@@ -88,6 +88,7 @@ class VideoImporter(BaseQRImporter):
             name=qr_name,
             qr_type=job.qr_type,
             created_by=job.user,
+            project=job.project,
         )
         playlist_id = f"playlist-{qr.id + 12}"
 

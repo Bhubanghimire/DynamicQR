@@ -26,7 +26,7 @@ class EmailImporter(BaseQRImporter):
 
         qr_type = job.qr_type
 
-        qr = QRCode.objects.create(name=qr_name, qr_type=qr_type, created_by=job.user)
+        qr = QRCode.objects.create(name=qr_name, qr_type=qr_type, created_by=job.user, project=job.project)
         content_json = {
             "email": f"{email}",
         }
