@@ -30,6 +30,11 @@ def get_importer(qr_type):
 
         return GoogleMapImporter()
 
+    if str(qr_type_name) == "e050984a-4b7d-49d2-b92c-ee2d0fc7ceb9":
+        from .importers.whatsapp import WhatsappImporter
+
+        return WhatsappImporter()
+
     raise ValueError(
         f"Bulk import is not supported for QR type: {qr_type.name}"
     )
