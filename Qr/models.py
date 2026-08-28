@@ -318,6 +318,7 @@ class CustomDomain(SoftDeletable):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         VERIFIED = "verified", "Verified"
+        VERIFYING = "verifying", "Verifying"
         ACTIVE = "active", "Active"
         FAILED = "failed", "Failed"
         DISABLED = "disabled", "Disabled"
