@@ -15,7 +15,7 @@ user_qr_router.register(r'qr', QRCodeViewSet, basename='Qr')
 user_qr_router.register(r'template', TemplateViewSet, basename='template_design')
 user_qr_router.register(r'qr/video', VideoViewSet, basename='video')
 user_qr_router.register(r'bulk_import', QRCodeBulkImportViewSet, basename='import')
-user_qr_router.register(r'custom-domains', CustomDomainViewSet, basename='custom-domains')
+user_qr_router.register(r'domains', CustomDomainViewSet, basename='custom-domains')
 
 
 urlpatterns = [

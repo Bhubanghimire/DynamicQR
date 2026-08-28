@@ -245,12 +245,28 @@ class CustomDomainSchema(PaginatedAutoSchema):
             return "Delete a custom domain owned by the authenticated user."
         if action == "verify":
             return "Verify the custom domain by checking its CNAME record."
+        if action == "verify_by_token":
+            return "Verify a custom domain using the verification token passed in the `token` query parameter."
         return super().get_description(path, method)
 
     def get_request_body(self, path, method):
-        if getattr(self.view, "action", None) == "verify":
+        if getattr(self.view, "action", None) in {"verify", "verify_by_token"}:
             return None
         return super().get_request_body(path, method)
+
+    def get_operation(self, path, method):
+        operation = super().get_operation(path, method)
+        if getattr(self.view, "action", None) == "verify_by_token":
+            operation.setdefault("parameters", []).append(
+                {
+                    "name": "token",
+                    "required": True,
+                    "in": "query",
+                    "description": "Verification token received for the custom domain.",
+                    "schema": {"type": "string"},
+                }
+            )
+        return operation
 
 def send_project_invitation_email(invitation):
     invitation_url = (
@@ -1656,6 +1672,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
 
 
 class CustomDomainViewSet(viewsets.ModelViewSet):
+    schema = CustomDomainSchema()
     serializer_class = CustomDomainSerializer
     permission_classes = [IsAuthenticated]
 
