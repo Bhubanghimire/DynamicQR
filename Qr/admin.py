@@ -127,8 +127,8 @@ class CustomDomainAdmin(admin.ModelAdmin):
             'fields': ('verification_token', 'verified_at', 'activated_at',
                        'verification_attempts', 'last_verification_attempt')
         }),
-        ('Metadata', {
-            'fields': ('created_at', 'updated_at', 'is_deleted')
-        })
+    #     ('Metadata', {
+    #         'fields': ('created_at', 'updated_at', 'is_deleted')
+    #     })
     )
 
