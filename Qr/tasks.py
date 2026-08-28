@@ -44,6 +44,33 @@ def get_importer(qr_type):
         f"Bulk import is not supported for QR type: {qr_type.name}"
     )
 
+
+def load_import_workbook_rows(import_job):
+    workbook = load_workbook(
+        import_job.file.path,
+        read_only=True,
+        data_only=True,
+    )
+
+    worksheet = workbook.active
+    rows = list(worksheet.iter_rows(values_only=True))
+
+    if not rows:
+        raise ValueError("Excel file is empty.")
+
+    headers = [
+        str(header).strip()
+        if header is not None
+        else ""
+        for header in rows[0]
+    ]
+    data_rows = rows[1:]
+
+    if len(data_rows) > 100:
+        raise ValueError("Excel file cannot contain more than 100 rows.")
+
+    return headers, data_rows
+
 @shared_task
 def process_qr_import(import_job_id):
     try:
@@ -60,34 +87,7 @@ def process_qr_import(import_job_id):
             update_fields=["started_at", "updated_at"]
         )
 
-        # Load Excel
-        workbook = load_workbook(
-            import_job.file.path,
-            read_only=True,
-            data_only=True,
-        )
-
-        worksheet = workbook.active
-
-        rows = list(worksheet.iter_rows(values_only=True))
-
-        if not rows:
-            raise ValueError("Excel file is empty.")
-
-        headers = [
-            str(header).strip()
-            if header is not None
-            else ""
-            for header in rows[0]
-        ]
-
-        data_rows = rows[1:]
-
-        # Maximum 100 data rows
-        if len(data_rows) > 100:
-            raise ValueError(
-                "Excel file cannot contain more than 100 rows."
-            )
+        headers, data_rows = load_import_workbook_rows(import_job)
 
         import_job.total_rows = len(data_rows)
         import_job.save(

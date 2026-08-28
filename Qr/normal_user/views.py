@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-from Qr.tasks import process_qr_import
+from Qr.tasks import process_qr_import, get_importer, load_import_workbook_rows
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
@@ -1526,6 +1526,101 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
             {
                 "data": serializer.data,
                 "msg": "Import job status retrieved successfully.",
+                "status": "success",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="validate",
+    )
+    def validate_import(self, request, *args, **kwargs):
+        serializer = QRImportJobUploadSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        qr_type = serializer.validated_data["qr_type"]
+        project = serializer.validated_data["project"]
+        design_data = serializer.validated_data["design_data"]
+        file = serializer.validated_data["file"]
+
+        pending_status = ConfigChoice.objects.get(
+            id="f1f4c191-dadd-43a3-8cba-b021485c418c",
+        )
+
+        import_job = QRImportJob(
+            user=request.user,
+            project=project,
+            qr_type=qr_type,
+            status=pending_status,
+            file=file,
+            design_data=design_data,
+        )
+
+        try:
+            headers, data_rows = load_import_workbook_rows(import_job)
+            importer = get_importer(import_job.qr_type)
+            importer.validate_headers(headers)
+        except Exception as exc:
+            return Response(
+                {
+                    "data": {
+                        "rows": [],
+                        "error": str(exc),
+                    },
+                    "msg": "Import validation failed.",
+                    "status": "error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+        from django.db import transaction
+
+        for index, row_values in enumerate(data_rows, start=2):
+            row = dict(zip(headers, row_values))
+            qrname = row.get("QrName") or row.get("qrname") or ""
+            try:
+                with transaction.atomic():
+                    sid = transaction.savepoint()
+                    try:
+                        importer.process_row(
+                            row=row,
+                            job=import_job,
+                            row_number=index,
+                        )
+                        transaction.savepoint_rollback(sid)
+                    except Exception:
+                        transaction.savepoint_rollback(sid)
+                        raise
+                results.append(
+                    {
+                        "row": index,
+                        "qrname": qrname,
+                        "status": "valid",
+                        "error": None,
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "row": index,
+                        "qrname": qrname,
+                        "status": "invalid",
+                        "error": str(exc),
+                    }
+                )
+
+        return Response(
+            {
+                "data": {
+                    "rows": results,
+                },
+                "msg": "Import validation completed successfully.",
                 "status": "success",
             },
             status=status.HTTP_200_OK,
