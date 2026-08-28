@@ -300,3 +300,5 @@ REFRESH_COOKIE_DOMAIN = config("REFRESH_COOKIE_DOMAIN", default=None)
 FRONTEND_URL = config("FRONTEND_URL", default=None)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
+CUSTOM_DOMAIN_CNAME_TARGET="qrapi.cogniasystems.com"
+BASE_DOMAIN="qrapi.cogniasystems.com"

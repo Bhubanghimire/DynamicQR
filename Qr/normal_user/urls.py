@@ -4,7 +4,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from accounts.views import AuthViewSet
 from Qr.normal_user.views import ProjectViewSet, QRCodeViewSet, TemplateViewSet, VideoViewSet, ProjectInvitationViewSet, \
-    QRCodeBulkImportViewSet
+    QRCodeBulkImportViewSet, CustomDomainViewSet
 
 app_name = "accounts_user"
 
@@ -15,6 +15,7 @@ user_qr_router.register(r'qr', QRCodeViewSet, basename='Qr')
 user_qr_router.register(r'template', TemplateViewSet, basename='template_design')
 user_qr_router.register(r'qr/video', VideoViewSet, basename='video')
 user_qr_router.register(r'bulk_import', QRCodeBulkImportViewSet, basename='import')
+user_qr_router.register(r'custom-domains', CustomDomainViewSet, basename='custom-domains')
 
 
 urlpatterns = [

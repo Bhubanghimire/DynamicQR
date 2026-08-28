@@ -15,16 +15,14 @@ from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import NotFound
 from DynamicOCR.schemas import PaginatedAutoSchema
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from Qr.dns_utils import DomainVerificationService
 
 from Qr.tasks import process_qr_import, get_importer, load_import_workbook_rows
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
-    QRImportJob
+    QRImportJob, CustomDomain
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -35,7 +33,7 @@ from Qr.serializers import (
     QRDesignSerializer,
     QRCodeSummarySerializer, TemplateDesignSerializer, VideoDeleteSerializer, VideoUploadSerializer,
     VideoUpdateSerializer, ProjectInvitationSerializer, ProjectInvitationDetailSerializer, QRImportJobUploadSerializer,
-    QRImportJobStatusSerializer,
+    QRImportJobStatusSerializer, CustomDomainSerializer,
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
@@ -223,6 +221,36 @@ class InvitationSchema(PaginatedAutoSchema):
                 }
             )
         return params
+
+
+class CustomDomainSchema(PaginatedAutoSchema):
+    def get_tags(self, path, method):
+        return ["Custom Domain API"]
+
+    def get_operation_id(self, path, method):
+        action = getattr(self.view, "action", None) or "unknown"
+        return f"custom_domain_{action}"
+
+    def get_description(self, path, method):
+        action = getattr(self.view, "action", None)
+        if action == "list":
+            return "List the authenticated user's custom domains."
+        if action == "retrieve":
+            return "Retrieve a custom domain owned by the authenticated user."
+        if action == "create":
+            return "Create a custom domain for the authenticated user."
+        if action in {"update", "partial_update"}:
+            return "Update a custom domain owned by the authenticated user."
+        if action == "destroy":
+            return "Delete a custom domain owned by the authenticated user."
+        if action == "verify":
+            return "Verify the custom domain by checking its CNAME record."
+        return super().get_description(path, method)
+
+    def get_request_body(self, path, method):
+        if getattr(self.view, "action", None) == "verify":
+            return None
+        return super().get_request_body(path, method)
 
 def send_project_invitation_email(invitation):
     invitation_url = (
@@ -1625,3 +1653,192 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class CustomDomainViewSet(viewsets.ModelViewSet):
+    serializer_class = CustomDomainSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return CustomDomain.objects.filter(
+            user=self.request.user,
+            is_deleted=False
+        )
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        """Create a new custom domain"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        domain = serializer.save(user=request.user)
+
+        return Response({
+            'success': True,
+            'message': 'Domain added successfully. Please verify it.',
+            'domain': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def verify(self, request, pk=None):
+        """Verify a domain"""
+        domain = self.get_object()
+
+        # Check if domain can be verified
+        if domain.status == CustomDomain.Status.ACTIVE:
+            return Response({
+                'success': False,
+                'message': 'Domain is already verified'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_domain(domain)
+
+        if result['success']:
+            return Response(result, status=status.HTTP_200_OK)
+        else:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def verify_by_token(self, request):
+        """Verify domain using token from URL"""
+        token = request.query_params.get('token')
+
+        if not token:
+            return Response({
+                'success': False,
+                'error': 'Verification token is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            domain = CustomDomain.objects.get(
+                verification_token=token,
+                is_deleted=False
+            )
+        except CustomDomain.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Invalid verification token'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_domain(domain)
+
+        # Redirect to frontend with result
+        if result['success']:
+            # You can redirect to a success page
+            return Response({
+                'success': True,
+                'message': 'Domain verified successfully!',
+                'domain': domain.domain
+            })
+        else:
+            return Response({
+                'success': False,
+                'message': 'Verification failed. Please try again.',
+                'domain': domain.domain
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'])
+    def instructions(self, request, pk=None):
+        """Get verification instructions for a domain"""
+        domain = self.get_object()
+
+        serializer = self.get_serializer(domain)
+        return Response({
+            'success': True,
+            'instructions': serializer.data.get('verification_instructions')
+        })
+
+    @action(detail=True, methods=['post'])
+    def regenerate_token(self, request, pk=None):
+        """Regenerate verification token for a domain"""
+        domain = self.get_object()
+
+        if domain.status == CustomDomain.Status.ACTIVE:
+            return Response({
+                'success': False,
+                'message': 'Cannot regenerate token for active domain'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        import secrets
+        domain.verification_token = secrets.token_urlsafe(32)
+        domain.save()
+
+        serializer = self.get_serializer(domain)
+        return Response({
+            'success': True,
+            'message': 'Verification token regenerated',
+            'domain': serializer.data
+        })
+
+    @action(detail=False, methods=['get'])
+    def check_status(self, request):
+        """Check status of a domain"""
+        domain = request.query_params.get('domain')
+
+        if not domain:
+            return Response({
+                'success': False,
+                'error': 'Domain parameter is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            domain_obj = CustomDomain.objects.get(
+                domain=domain,
+                is_deleted=False
+            )
+
+            return Response({
+                'success': True,
+                'domain': domain,
+                'status': domain_obj.status,
+                'is_verified': domain_obj.status == CustomDomain.Status.ACTIVE,
+                'user_id': domain_obj.user.id if domain_obj.user else None,
+                'exists': True
+            })
+        except CustomDomain.DoesNotExist:
+            return Response({
+                'success': True,
+                'domain': domain,
+                'exists': False
+            })
+
+    @action(detail=False, methods=['post'])
+    def auto_verify(self, request):
+        """Auto-verify pending domains (admin only)"""
+        # Add admin permission check here
+        if not request.user.is_staff:
+            return Response({
+                'success': False,
+                'error': 'Only administrators can perform this action'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.auto_verify_pending_domains()
+
+        return Response(result)
+
+    @action(detail=False, methods=['post'])
+    def clear_cache(self, request):
+        """Clear DNS cache (admin only)"""
+        if not request.user.is_staff:
+            return Response({
+                'success': False,
+                'error': 'Only administrators can perform this action'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        domain = request.data.get('domain')
+        verification_service = DomainVerificationService()
+        verification_service.clear_dns_cache(domain)
+
+        return Response({
+            'success': True,
+            'message': f'DNS cache cleared for {domain or "all domains"}'
+        })
+
+    def perform_destroy(self, instance):
+        """Soft delete domain"""
+        instance.is_deleted = True
+        instance.status = CustomDomain.Status.DISABLED
+        instance.save()

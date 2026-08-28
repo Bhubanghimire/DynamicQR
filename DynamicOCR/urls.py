@@ -17,7 +17,7 @@ swagger_view = TemplateView.as_view(
     template_name="swagger-ui.html",
     extra_context={
         "schema_url": "/api/schema/",
-        "page_title": "DynamicOCR Swagger",
+        "page_title": "DynamicOCR Swagger - Custom Domain APIs",
     },
 )
 def home(request):

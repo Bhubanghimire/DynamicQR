@@ -1,13 +1,16 @@
+import re
+import secrets
 from datetime import timedelta
 from uuid import uuid4
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 from django.utils import timezone
 
-from .models import Invitations, SharePermissions, Project
+from .models import Invitations, SharePermissions, Project, CustomDomain
 from system.models import ConfigChoice
 
 from Qr.models import (
@@ -70,8 +73,7 @@ class QRCodeSerializer(serializers.ModelSerializer):
         return value
 
     def get_domain_name(self, obj):
-        scan_setting = QRScanSetting.objects.filter(qr_code=obj).first()
-        return scan_setting.domain if scan_setting else None
+        return obj.domain_name
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -783,3 +785,101 @@ class QRImportJobStatusSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class CustomDomainSerializer(serializers.ModelSerializer):
+    verification_instructions = serializers.SerializerMethodField()
+    is_verified = serializers.BooleanField(read_only=True)
+    verification_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomDomain
+        fields = [
+            'id',
+            'domain',
+            'status',
+            'verification_token',
+            'verified_at',
+            'activated_at',
+            'created_at',
+            'updated_at',
+            'is_verified',
+            'verification_url',
+            'verification_instructions',
+            'verification_attempts',
+        ]
+        read_only_fields = [
+            'id',
+            'status',
+            'verification_token',
+            'verified_at',
+            'activated_at',
+            'created_at',
+            'updated_at',
+            'is_verified',
+            'verification_url',
+            'verification_instructions',
+            'verification_attempts',
+        ]
+
+    def validate_domain(self, value):
+        """Validate domain format"""
+        # Remove protocol if present
+        domain = re.sub(r'^https?://', '', value)
+        domain = domain.split('/')[0]
+
+        # Validate domain format
+        domain_regex = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+        if not re.match(domain_regex, domain):
+            raise serializers.ValidationError("Invalid domain format")
+
+        # Check if domain is already taken
+        if CustomDomain.objects.filter(
+                domain=domain,
+                is_deleted=False
+        ).exists():
+            raise serializers.ValidationError("Domain is already registered")
+
+        return domain
+
+    def get_verification_instructions(self, obj):
+        """Generate verification instructions for the user"""
+        return {
+            'type': 'DNS',
+            'cname_record': {
+                'type': 'CNAME',
+                'host': obj.domain,
+                'value': settings.CUSTOM_DOMAIN_CNAME_TARGET,
+                'ttl': 3600,
+                'purpose': 'Required - Points domain to our servers'
+            },
+            'txt_record': {
+                'type': 'TXT',
+                'host': obj.domain,
+                'value': f'domain-verify={obj.verification_token}',
+                'ttl': 3600,
+                'purpose': 'Optional - Used for verification'
+            },
+
+            'verification_url': obj.get_verification_url(),
+            'dns_propagation_time': 'Up to 24 hours'
+        }
+
+    def get_verification_url(self, obj):
+        return obj.get_verification_url()
+
+    def create(self, validated_data):
+        """Create domain with verification token"""
+        validated_data['verification_token'] = secrets.token_urlsafe(32)
+        return super().create(validated_data)
+
+    class DomainVerificationSerializer(serializers.Serializer):
+        token = serializers.CharField(max_length=100)
+
+    class DomainResponseSerializer(serializers.Serializer):
+        success = serializers.BooleanField()
+        message = serializers.CharField()
+        domain = serializers.CharField(required=False)
+        method = serializers.CharField(required=False)
+        attempts = serializers.IntegerField(required=False)
+        verification_results = serializers.DictField(required=False)

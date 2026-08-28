@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
@@ -51,6 +52,11 @@ class QRCode(SoftDeletable):
             return False, False
         return setting.password_enabled, setting.password
 
+    @property
+    def domain_name(self):
+        setting = QRScanSetting.objects.filter(qr_code=self).first()
+        return setting.domain if setting else None
+
 
 class QRCodeData(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
@@ -69,7 +75,7 @@ class QRSchedule(SoftDeletable):
 class QRScanSetting(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
     is_scan_limit = models.BooleanField(default=False)
-    domain = models.URLField(null=True, blank=True)
+    domain = models.CharField(max_length=200,null=True, blank=True)
     password_enabled = models.BooleanField(default=False)
     password = models.CharField(max_length=100, null=True, blank=True)
     scan_limit = models.PositiveIntegerField(null=True, blank=True)
@@ -298,3 +304,76 @@ class QRImportJob(SoftDeletable):
 
     def __str__(self):
         return f"{self.project.name} - {self.qr_type} - {self.status}"
+
+
+
+
+class CustomDomain(SoftDeletable):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        VERIFIED = "verified", "Verified"
+        ACTIVE = "active", "Active"
+        FAILED = "failed", "Failed"
+        DISABLED = "disabled", "Disabled"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.RESTRICT,
+        related_name="custom_domains",
+    )
+
+    domain = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+
+    verification_token = models.CharField(
+        max_length=100,
+        unique=True,
+        editable=False,
+    )
+    verification_attempts = models.IntegerField(default=0)
+    last_verification_attempt = models.DateTimeField(null=True, blank=True)
+
+    verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    activated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.domain
+
+    def save(self, *args, **kwargs):
+        if not self.verification_token:
+            self.verification_token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_verified(self):
+        return self.status == self.Status.ACTIVE
+
+    @property
+    def is_pending(self):
+        return self.status in [self.Status.PENDING, self.Status.VERIFYING]
+
+    def get_verification_url(self):
+        return f"https://{settings.BASE_DOMAIN}/api/domains/verify/{self.verification_token}"
+
+    def get_cname_target(self):
+        return settings.CUSTOM_DOMAIN_CNAME_TARGET

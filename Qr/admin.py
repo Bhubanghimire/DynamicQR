@@ -1,5 +1,6 @@
 from django.contrib import admin
-from Qr.models import QRCode, Project, QRCodeData, QRDesign, QRSchedule, QRScanSetting, QrMedia, MediaItem, Invitations, SharePermissions, TemplateDesign
+from Qr.models import QRCode, Project, QRCodeData, QRDesign, QRSchedule, QRScanSetting, QrMedia, MediaItem, Invitations, \
+    SharePermissions, TemplateDesign, CustomDomain
 
 
 # Register your models here.
@@ -105,3 +106,29 @@ class TemplateDesignAdmin(admin.ModelAdmin):
     list_display = (
         "id","qr_code","created_at","updated_at",
     )
+
+
+
+
+
+@admin.register(CustomDomain)
+class CustomDomainAdmin(admin.ModelAdmin):
+    list_display = ['domain', 'user', 'status', 'verified_at', 'created_at']
+    list_filter = ['status', 'created_at', 'verified_at']
+    search_fields = ['domain', 'user__email', 'user__username']
+    readonly_fields = ['verification_token', 'verified_at', 'activated_at']
+    raw_id_fields = ['user']
+
+    fieldsets = (
+        ('Domain Information', {
+            'fields': ('domain', 'user', 'status')
+        }),
+        ('Verification', {
+            'fields': ('verification_token', 'verified_at', 'activated_at',
+                       'verification_attempts', 'last_verification_attempt')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at', 'is_deleted')
+        })
+    )
+
