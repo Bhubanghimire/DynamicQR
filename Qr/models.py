@@ -306,7 +306,13 @@ class QRImportJob(SoftDeletable):
         return f"{self.project.name} - {self.qr_type} - {self.status}"
 
 
-
+class CustomDomainManager(models.Manager):
+    def get_verified_domains(self, user):
+        return self.filter(
+            user=user,
+            status=CustomDomain.Status.ACTIVE,
+            is_deleted=False
+        )
 
 class CustomDomain(SoftDeletable):
     class Status(models.TextChoices):
@@ -355,6 +361,8 @@ class CustomDomain(SoftDeletable):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = CustomDomainManager()
 
     def __str__(self):
         return self.domain
