@@ -184,7 +184,7 @@ class ProjectSchema(PaginatedAutoSchema):
                             "type": "object",
                             "properties": {
                                 "data": item_schema,
-                                "msg": {
+                                "message": {
                                     "type": "string",
                                     "example": "Import job status retrieved successfully.",
                                 },
@@ -193,7 +193,7 @@ class ProjectSchema(PaginatedAutoSchema):
                                     "example": "success",
                                 },
                             },
-                            "required": ["data", "msg", "status"],
+                            "required": ["data", "message", "status"],
                         }
                     }
                 }
@@ -1537,7 +1537,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                         "job_id": str(import_job.id),
                         "error": str(exc),
                     },
-                    "msg": "Import failed.",
+                    "message": "Import failed.",
                     "status": "error",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1549,7 +1549,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                         "job_id": str(import_job.id),
                         "error": str(exc),
                     },
-                    "msg": "Import failed.",
+                    "message": "Import failed.",
                     "status": "error",
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1561,7 +1561,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                     "job_id": str(import_job.id),
                     "status": pending_status.name,
                 },
-                "msg": "Import has been queued successfully.",
+                "message": "Import has been queued successfully.",
                 "status": "success",
             },
             status=status.HTTP_202_ACCEPTED,
@@ -1586,7 +1586,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         return Response(
             {
                 "data": serializer.data,
-                "msg": "Import job status retrieved successfully.",
+                "message": "Import job status retrieved successfully.",
                 "status": "success",
             },
             status=status.HTTP_200_OK,
@@ -1633,7 +1633,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                         "rows": [],
                         "error": str(exc),
                     },
-                    "msg": "Import validation failed.",
+                    "message": "Import validation failed.",
                     "status": "error",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1681,7 +1681,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                 "data": {
                     "rows": results,
                 },
-                "msg": "Import validation completed successfully.",
+                "message": "Import validation completed successfully.",
                 "status": "success",
             },
             status=status.HTTP_200_OK,

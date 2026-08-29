@@ -46,8 +46,18 @@ def get_importer(qr_type):
 
 
 def load_import_workbook_rows(import_job):
+    file_obj = getattr(import_job, "file", None)
+    if not file_obj:
+        raise ValueError("Import file is missing.")
+
+    # Read from the underlying file object instead of relying on .path.
+    # This works for both unsaved uploaded files and persisted storage-backed files.
+    source = getattr(file_obj, "file", file_obj)
+    if hasattr(source, "seek"):
+        source.seek(0)
+
     workbook = load_workbook(
-        import_job.file.path,
+        source,
         read_only=True,
         data_only=True,
     )
