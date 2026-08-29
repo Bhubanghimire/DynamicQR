@@ -302,3 +302,19 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 CUSTOM_DOMAIN_CNAME_TARGET="qrapi.cogniasystems.com"
 BASE_DOMAIN="qrapi.cogniasystems.com"
+
+LETSENCRYPT_EMAIL = "admin@yourdomain.com"
+
+# DNS Settings
+DNS_NAMESERVERS = [
+    "1.1.1.1",  # Cloudflare
+    "8.8.8.8",  # Google
+    "9.9.9.9",  # Quad9
+]
+
+# Nginx Settings
+NGINX_CLIENT_MAX_BODY_SIZE = "50M"
+BACKEND_HOST = "127.0.0.1:8001"
+PROXY_CONNECT_TIMEOUT = "60s"
+PROXY_SEND_TIMEOUT = "120s"
+PROXY_READ_TIMEOUT = "120s"

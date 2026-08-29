@@ -1,4 +1,5 @@
 from django.contrib.contenttypes.models import ContentType
+from django.core import cache
 from django.utils import timezone
 from django.db import transaction
 from uuid import UUID
@@ -15,9 +16,10 @@ from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import NotFound
 from DynamicOCR.schemas import PaginatedAutoSchema
-from Qr.dns_utils import DomainVerificationService
+from Qr.services.domain_verification import DomainVerificationService
+from Qr.services.ssl_provisioning_service import SSLProvisioningService
 
-from Qr.tasks import process_qr_import, get_importer, load_import_workbook_rows
+from Qr.tasks import process_qr_import, get_importer, load_import_workbook_rows, verify_and_activate_domain_async
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
@@ -1671,6 +1673,8 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         )
 
 
+# views.py - Updated CustomDomainViewSet
+
 class CustomDomainViewSet(viewsets.ModelViewSet):
     schema = CustomDomainSchema()
     serializer_class = CustomDomainSerializer
@@ -1684,47 +1688,143 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        """Create a new custom domain"""
+        """Create a new custom domain and start verification"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         domain = serializer.save(user=request.user)
 
-        return Response({
-            'success': True,
-            'message': 'Domain added successfully. Please verify it.',
-            'domain': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        # Start verification process synchronously
+        try:
+            verification_service = DomainVerificationService()
+            verification_service.verify_and_activate_domain(domain)
+
+            return Response({
+                'data': {
+                    'domain': serializer.data,
+                    'status': domain.status
+                },
+                'message': 'Domain added and verified successfully!',
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            # logger.error(f"Failed to start domain verification: {str(e)}")
+            return Response({
+                'data': {
+                    'domain': serializer.data,
+                    'warning': str(e)
+                },
+                'message': 'Domain added but verification must be started manually.',
+            }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
-        """Verify a domain"""
+        """Verify a domain and activate it"""
         domain = self.get_object()
 
-        # Check if domain can be verified
         if domain.status == CustomDomain.Status.ACTIVE:
             return Response({
-                'success': False,
-                'message': 'Domain is already verified'
+                'data': {},
+                'message': 'Domain is already active'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         verification_service = DomainVerificationService()
-        result = verification_service.verify_domain(domain)
+        result = verification_service.verify_and_activate_domain(domain)
 
         if result['success']:
-            return Response(result, status=status.HTTP_200_OK)
+            return Response({
+                'data': result,
+                'message': result.get('message', 'Domain verified successfully')
+            }, status=status.HTTP_200_OK)
         else:
-            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'data': result,
+                'message': result.get('message', 'Verification failed')
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        """Activate a verified domain"""
+        domain = self.get_object()
+
+        if domain.status not in [CustomDomain.Status.DNS_VERIFIED,
+                                 CustomDomain.Status.SSL_PENDING,
+                                 CustomDomain.Status.NGINX_PENDING]:
+            return Response({
+                'data': {},
+                'message': f'Domain cannot be activated. Current status: {domain.status}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_and_activate_domain(domain)
+
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Domain activated successfully')
+        })
+
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        """Deactivate an active domain"""
+        domain = self.get_object()
+
+        if domain.status != CustomDomain.Status.ACTIVE:
+            return Response({
+                'data': {},
+                'message': 'Only active domains can be deactivated'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.deactivate_domain(domain)
+
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Domain deactivated successfully')
+        })
 
     @action(detail=False, methods=['get'])
-    def verify_by_token(self, request):
-        """Verify domain using token from URL"""
-        token = request.query_params.get('token')
+    def status(self, request):
+        """Get detailed status of a domain"""
+        domain = request.query_params.get('domain')
 
+        if not domain:
+            return Response({
+                'data': {},
+                'message': 'Domain parameter required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.get_domain_status(domain)
+
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Domain status fetched successfully')
+        })
+
+    @action(detail=False, methods=['post'])
+    def auto_verify(self, request):
+        """Auto-verify pending domains (admin only)"""
+        if not request.user.is_staff:
+            return Response({
+                'data': {},
+                'message': 'Only administrators can perform this action'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.auto_verify_pending_domains()
+
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Pending domains processed successfully')
+        })
+
+    @action(detail=False, methods=['get'], url_path='verify/(?P<token>[^/.]+)')
+    def verify_by_token(self, request, token=None):
+        """Verify domain using token from URL"""
         if not token:
             return Response({
-                'success': False,
-                'error': 'Verification token is required'
+                'data': {},
+                'message': 'Verification token is required'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -1734,127 +1834,94 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             )
         except CustomDomain.DoesNotExist:
             return Response({
-                'success': False,
-                'error': 'Invalid verification token'
+                'data': {},
+                'message': 'Invalid verification token'
             }, status=status.HTTP_404_NOT_FOUND)
 
-        verification_service = DomainVerificationService()
-        result = verification_service.verify_domain(domain)
-
-        # Redirect to frontend with result
-        if result['success']:
-            # You can redirect to a success page
+        # If domain is already active
+        if domain.status == CustomDomain.Status.ACTIVE:
             return Response({
-                'success': True,
-                'message': 'Domain verified successfully!',
-                'domain': domain.domain
+                'data': {
+                    'domain': domain.domain,
+                    'status': domain.status,
+                    'activated_at': domain.activated_at
+                },
+                'message': 'Domain is already verified and active!',
+            })
+
+        # Start verification process
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_and_activate_domain(domain)
+
+        if result['success']:
+            return Response({
+                'data': {
+                    'domain': domain.domain,
+                    'status': domain.status,
+                    'ssl_verified': domain.ssl_verified,
+                    'ssl_issuer': domain.ssl_issuer,
+                    'ssl_expires_at': domain.ssl_expires_at
+                },
+                'message': 'Domain verified and activated successfully!',
             })
         else:
             return Response({
-                'success': False,
-                'message': 'Verification failed. Please try again.',
-                'domain': domain.domain
+                'data': {
+                    'domain': domain.domain,
+                    'status': domain.status,
+                    'error': result.get('error'),
+                    'fix_instructions': [
+                        '1. Check your DNS CNAME record:',
+                        f'   - Type: CNAME',
+                        f'   - Host: {domain.domain}',
+                        f'   - Value: qrapi.cogniasystems.com',
+                        '2. Wait for DNS propagation (up to 24 hours)',
+                        '3. Try again after propagation',
+                        '4. If using Cloudflare, ensure proxy is disabled (grey cloud)'
+                    ]
+                },
+                'message': result.get('message', 'Verification failed'),
             }, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=['get'])
-    def instructions(self, request, pk=None):
-        """Get verification instructions for a domain"""
-        domain = self.get_object()
-
-        serializer = self.get_serializer(domain)
-        return Response({
-            'success': True,
-            'instructions': serializer.data.get('verification_instructions')
-        })
 
     @action(detail=True, methods=['post'])
-    def regenerate_token(self, request, pk=None):
-        """Regenerate verification token for a domain"""
+    def retry_ssl(self, request, pk=None):
+        """Retry SSL provisioning for a domain"""
         domain = self.get_object()
 
-        if domain.status == CustomDomain.Status.ACTIVE:
+        if domain.status not in [CustomDomain.Status.SSL_PENDING,
+                                 CustomDomain.Status.DNS_VERIFIED]:
             return Response({
-                'success': False,
-                'message': 'Cannot regenerate token for active domain'
+                'data': {},
+                'message': f'SSL provisioning cannot be retried. Current status: {domain.status}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        import secrets
-        domain.verification_token = secrets.token_urlsafe(32)
-        domain.save()
+        ssl_service = SSLProvisioningService(domain.domain)
+        result = ssl_service.provision_certificate()
 
-        serializer = self.get_serializer(domain)
-        return Response({
-            'success': True,
-            'message': 'Verification token regenerated',
-            'domain': serializer.data
-        })
+        if result['success']:
+            domain.ssl_verified = True
+            domain.ssl_issued_at = timezone.now()
+            domain.ssl_expires_at = result.get('expires_at')
+            domain.status = CustomDomain.Status.SSL_PENDING
+            domain.save()
 
-    @action(detail=False, methods=['get'])
-    def check_status(self, request):
-        """Check status of a domain"""
-        domain = request.query_params.get('domain')
-
-        if not domain:
+            # Try to continue the activation
+            verification_service = DomainVerificationService()
+            result = verification_service.verify_and_activate_domain(domain)
             return Response({
-                'success': False,
-                'error': 'Domain parameter is required'
+                'data': result,
+                'message': result.get('message', 'SSL provisioning successful')
+            })
+        else:
+            domain.automation_error = result.get('error', 'SSL provisioning failed')
+            domain.save()
+            return Response({
+                'data': result,
+                'message': result.get('error', 'SSL provisioning failed')
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            domain_obj = CustomDomain.objects.get(
-                domain=domain,
-                is_deleted=False
-            )
-
-            return Response({
-                'success': True,
-                'domain': domain,
-                'status': domain_obj.status,
-                'is_verified': domain_obj.status == CustomDomain.Status.ACTIVE,
-                'user_id': domain_obj.user.id if domain_obj.user else None,
-                'exists': True
-            })
-        except CustomDomain.DoesNotExist:
-            return Response({
-                'success': True,
-                'domain': domain,
-                'exists': False
-            })
-
-    @action(detail=False, methods=['post'])
-    def auto_verify(self, request):
-        """Auto-verify pending domains (admin only)"""
-        # Add admin permission check here
-        if not request.user.is_staff:
-            return Response({
-                'success': False,
-                'error': 'Only administrators can perform this action'
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        verification_service = DomainVerificationService()
-        result = verification_service.auto_verify_pending_domains()
-
-        return Response(result)
-
-    @action(detail=False, methods=['post'])
-    def clear_cache(self, request):
-        """Clear DNS cache (admin only)"""
-        if not request.user.is_staff:
-            return Response({
-                'success': False,
-                'error': 'Only administrators can perform this action'
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        domain = request.data.get('domain')
-        verification_service = DomainVerificationService()
-        verification_service.clear_dns_cache(domain)
-
-        return Response({
-            'success': True,
-            'message': f'DNS cache cleared for {domain or "all domains"}'
-        })
-
-    def perform_destroy(self, instance):
+def perform_destroy(self, instance):
         """Soft delete domain"""
         instance.is_deleted = True
         instance.status = CustomDomain.Status.DISABLED
