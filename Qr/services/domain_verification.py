@@ -251,7 +251,7 @@ class DomainVerificationService:
             return dns_result
 
         # Update status to DNS verified
-        domain_instance.status = CustomDomain.Status.DNS_VERIFIED
+        domain_instance.status = CustomDomain.Status.VERIFIED
         domain_instance.dns_verified_at = timezone.now()
         domain_instance.save()
 
