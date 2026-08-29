@@ -1694,20 +1694,14 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
         domain = serializer.save(user=request.user)
 
-        # Start verification process asynchronously
+        # Start verification process synchronously
         try:
-            # Option 1: Use Celery task
-            # from .tasks import verify_and_activate_domain_async
-            verify_and_activate_domain_async(domain.id)
-            # verify_and_activate_domain_async.delay(domain.id)
-
-            # Option 2: Sync (for immediate testing)
-            # verification_service = DomainVerificationService()
-            # verification_service.verify_and_activate_domain(domain)
+            verification_service = DomainVerificationService()
+            verification_service.verify_and_activate_domain(domain)
 
             return Response({
                 'success': True,
-                'message': 'Domain added and verification started. This may take a few minutes.',
+                'message': 'Domain added and verified successfully!',
                 'domain': serializer.data,
                 'status': domain.status
             }, status=status.HTTP_201_CREATED)
