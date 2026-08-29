@@ -266,7 +266,7 @@
         "pk": "3e946721-e802-4a24-a0cb-d77847e018ee",
         "fields": {
             "name": "Pending",
-            "category_id": "12674e99-d86f-4af3-8215-bfc7e75c6d25",
+            "category_id": "6623d351-43e6-4415-949b-776d9e99b2a8",
             "image": null,
             "status": true,
             "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
@@ -351,8 +351,26 @@
             "created_at": "2026-05-03T06:41:11.567Z"
         }
 
+    },
+    {
+        "model": "system.ConfigCategory",
+        "pk": "6b02c330-6997-412e-8b4a-139f9278e765",
+        "fields": {
+            "name": "excel_import_status",
+            "description": "excel_import_status",
+            "created_at": "2026-08-25T12:30:29.567476"
+        }
+    },
+    {
+        "model": "system.ConfigChoice",
+        "pk": "f1f4c191-dadd-43a3-8cba-b021485c418c",
+        "fields": {
+            "name": "Pending",
+            "category_id": "6b02c330-6997-412e-8b4a-139f9278e765",
+            "image": null,
+            "status": true,
+            "description": "",
+            "created_at": "2026-08-25T12:30:40.930985"
+        }
     }
-
-
-
 ]

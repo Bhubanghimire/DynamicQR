@@ -249,8 +249,16 @@
             "created_at": "2026-05-03T06:41:11.567Z"
         }
     },{
+        "model": "system.ConfigCategory",
+        "pk": "6b02c3306997412e8b4a139f9278e765",
+        "fields": {
+            "name": "excel_import_status",
+            "description": "excel_import_status",
+            "created_at": "2026-08-25T12:30:29.567476"
+        }
+    },{
         "model": "system.ConfigChoice",
-        "pk": "f1f4c191-dadd-43a3-8cba-b021485c418c",
+        "pk": "f1f4c191dadd43a38cbab021485c418c",
         "fields": {
             "name": "Pending",
             "category_id": "6b02c3306997412e8b4a139f9278e765",
