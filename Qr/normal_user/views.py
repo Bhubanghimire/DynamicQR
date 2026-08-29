@@ -24,7 +24,7 @@ from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
-    QRImportJob, CustomDomain
+    QRImportJob, CustomDomain, QRSchedule
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -184,7 +184,7 @@ class ProjectSchema(PaginatedAutoSchema):
                             "type": "object",
                             "properties": {
                                 "data": item_schema,
-                                "msg": {
+                                "message": {
                                     "type": "string",
                                     "example": "Import job status retrieved successfully.",
                                 },
@@ -193,7 +193,7 @@ class ProjectSchema(PaginatedAutoSchema):
                                     "example": "success",
                                 },
                             },
-                            "required": ["data", "msg", "status"],
+                            "required": ["data", "message", "status"],
                         }
                     }
                 }
@@ -608,6 +608,21 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             qr_code = self._get_qr_by_identifier(kwargs.get("pk"))
         except QRCode.DoesNotExist:
             raise NotFound()
+
+        qr_schedule = QRSchedule.objects.filter(qr_code=qr_code, is_deleted=False).first()
+        if qr_schedule and (qr_schedule.start_date or qr_schedule.end_date):
+            now = timezone.now()
+            # Enforce whichever boundary is configured.
+            if qr_schedule.start_date and now < qr_schedule.start_date:
+                return Response(
+                    {"data": {}, "message": "QR code is not active yet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if qr_schedule.end_date and now > qr_schedule.end_date:
+                return Response(
+                    {"data": {}, "message": "QR code has expired."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         is_enabled, password_saved = qr_code.is_password_enabled()
         if is_enabled:
@@ -1522,7 +1537,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                         "job_id": str(import_job.id),
                         "error": str(exc),
                     },
-                    "msg": "Import failed.",
+                    "message": "Import failed.",
                     "status": "error",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1534,7 +1549,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                         "job_id": str(import_job.id),
                         "error": str(exc),
                     },
-                    "msg": "Import failed.",
+                    "message": "Import failed.",
                     "status": "error",
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1546,7 +1561,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                     "job_id": str(import_job.id),
                     "status": pending_status.name,
                 },
-                "msg": "Import has been queued successfully.",
+                "message": "Import has been queued successfully.",
                 "status": "success",
             },
             status=status.HTTP_202_ACCEPTED,
@@ -1571,7 +1586,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         return Response(
             {
                 "data": serializer.data,
-                "msg": "Import job status retrieved successfully.",
+                "message": "Import job status retrieved successfully.",
                 "status": "success",
             },
             status=status.HTTP_200_OK,
@@ -1618,7 +1633,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                         "rows": [],
                         "error": str(exc),
                     },
-                    "msg": "Import validation failed.",
+                    "message": "Import validation failed.",
                     "status": "error",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1666,7 +1681,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                 "data": {
                     "rows": results,
                 },
-                "msg": "Import validation completed successfully.",
+                "message": "Import validation completed successfully.",
                 "status": "success",
             },
             status=status.HTTP_200_OK,
