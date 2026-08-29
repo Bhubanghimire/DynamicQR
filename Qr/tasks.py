@@ -215,3 +215,80 @@ def process_qr_import(import_job_id):
         )
 
         raise
+
+
+# tasks.py
+from celery import shared_task
+from .services.domain_verification import DomainVerificationService
+from .models import CustomDomain
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@shared_task(bind=True, max_retries=3)
+def verify_and_activate_domain_async(self, domain_id):
+    """Asynchronously verify and activate a domain"""
+    try:
+        domain = CustomDomain.objects.get(id=domain_id, is_deleted=False)
+
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_and_activate_domain(domain)
+
+        if not result['success']:
+            # Retry with exponential backoff
+            raise Exception(f"Domain verification failed: {result.get('error', 'Unknown error')}")
+
+        return result
+
+    except CustomDomain.DoesNotExist:
+        logger.error(f"Domain {domain_id} not found")
+        return {'success': False, 'error': 'Domain not found'}
+    except Exception as e:
+        logger.error(f"Domain verification error: {str(e)}")
+        # Retry with exponential backoff
+        raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
+
+
+@shared_task
+def renew_expiring_ssl_certificates():
+    """Renew SSL certificates that are about to expire"""
+    from datetime import timedelta
+    from django.utils import timezone
+    from .services.ssl_provisioning_service import SSLProvisioningService
+
+    # Find domains with SSL expiring in less than 30 days
+    expiry_threshold = timezone.now() + timedelta(days=30)
+    domains = CustomDomain.objects.filter(
+        status=CustomDomain.Status.ACTIVE,
+        ssl_expires_at__lte=expiry_threshold,
+        is_deleted=False
+    )
+
+    results = []
+    for domain in domains:
+        ssl_service = SSLProvisioningService(domain.domain)
+        result = ssl_service.renew_certificate()
+
+        if result['success']:
+            # Update SSL expiry
+            from datetime import datetime
+            import subprocess
+            cmd = ['openssl', 'x509', '-in', f'/etc/letsencrypt/live/{domain.domain}/fullchain.pem', '-enddate',
+                   '-noout']
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode == 0:
+                expiry_str = proc.stdout.strip().replace('notAfter=', '')
+                domain.ssl_expires_at = datetime.strptime(expiry_str, '%b %d %H:%M:%S %Y %Z')
+                domain.save()
+
+        results.append({
+            'domain': domain.domain,
+            'success': result['success'],
+            'error': result.get('error') if not result['success'] else None
+        })
+
+    return {
+        'processed': len(domains),
+        'results': results
+    }

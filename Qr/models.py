@@ -319,6 +319,7 @@ class CustomDomain(SoftDeletable):
         PENDING = "pending", "Pending"
         VERIFIED = "verified", "Verified"
         VERIFYING = "verifying", "Verifying"
+        SSL_PENDING = "ssl_pending", "SSL Pending"
         ACTIVE = "active", "Active"
         FAILED = "failed", "Failed"
         DISABLED = "disabled", "Disabled"
@@ -359,6 +360,26 @@ class CustomDomain(SoftDeletable):
         null=True,
         blank=True,
     )
+    # SSL fields
+    ssl_verified = models.BooleanField(default=False)
+    ssl_verified_at = models.DateTimeField(null=True, blank=True)
+    ssl_issuer = models.CharField(max_length=255, blank=True, null=True)
+    ssl_expires_at = models.DateTimeField(null=True, blank=True)
+    ssl_info = models.JSONField(default=dict, blank=True)
+
+    # NEW: Track verification stages
+    dns_verified_at = models.DateTimeField(null=True, blank=True)
+    ssl_issued_at = models.DateTimeField(null=True, blank=True)
+    nginx_configured_at = models.DateTimeField(null=True, blank=True)
+
+    # NEW: Track Nginx configuration
+    nginx_config_path = models.CharField(max_length=255, blank=True, null=True)
+    nginx_enabled = models.BooleanField(default=False)
+
+    # NEW: Track automation attempts
+    automation_attempts = models.IntegerField(default=0)
+    last_automation_attempt = models.DateTimeField(null=True, blank=True)
+    automation_error = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -386,3 +407,9 @@ class CustomDomain(SoftDeletable):
 
     def get_cname_target(self):
         return settings.CUSTOM_DOMAIN_CNAME_TARGET
+
+    def get_nginx_config_path(self):
+        return f"/etc/nginx/sites-available/{self.domain}.conf"
+
+    def get_nginx_enabled_path(self):
+        return f"/etc/nginx/sites-enabled/{self.domain}.conf"

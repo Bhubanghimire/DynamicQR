@@ -1,4 +1,6 @@
 # services/domain_verification.py
+import os
+
 import dns.resolver
 import dns.exception
 import logging
@@ -7,6 +9,10 @@ from typing import List, Dict, Any, Optional
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.core.cache import cache
+
+from .ssl_provisioning_service import SSLProvisioningService
+from .nginx_config_service import NginxConfigService
 from django.core.cache import cache
 
 from Qr.models import CustomDomain
@@ -234,6 +240,150 @@ class DomainVerificationService:
             'processed': len(results),
             'results': results
         }
+
+    def verify_and_activate_domain(self, domain_instance):
+        """Full verification and activation pipeline"""
+
+        # Step 1: DNS Verification (your existing method)
+        dns_result = self.verify_domain(domain_instance)
+
+        if not dns_result['success']:
+            return dns_result
+
+        # Update status to DNS verified
+        domain_instance.status = CustomDomain.Status.DNS_VERIFIED
+        domain_instance.dns_verified_at = timezone.now()
+        domain_instance.save()
+
+        # Step 2: SSL Provisioning
+        ssl_service = SSLProvisioningService(domain_instance.domain)
+        ssl_result = ssl_service.provision_certificate()
+
+        if not ssl_result['success']:
+            domain_instance.status = CustomDomain.Status.SSL_PENDING
+            domain_instance.automation_error = ssl_result.get('error', 'SSL provisioning failed')
+            domain_instance.save()
+            return {
+                'success': False,
+                'step': 'ssl_provisioning',
+                'error': ssl_result.get('error', 'SSL provisioning failed'),
+                'ssl_details': ssl_result
+            }
+
+        # Update SSL fields
+        domain_instance.ssl_verified = True
+        domain_instance.ssl_verified_at = timezone.now()
+        domain_instance.ssl_issued_at = timezone.now()
+        domain_instance.ssl_expires_at = ssl_result.get('expires_at')
+        domain_instance.status = CustomDomain.Status.SSL_PENDING
+        domain_instance.save()
+
+        # Step 3: Nginx Configuration
+        nginx_service = NginxConfigService(domain_instance)
+        nginx_result = nginx_service.write_config()
+
+        if not nginx_result['success']:
+            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.automation_error = nginx_result.get('error', 'Nginx config failed')
+            domain_instance.save()
+            return {
+                'success': False,
+                'step': 'nginx_configuration',
+                'error': nginx_result.get('error', 'Nginx config failed')
+            }
+
+        # Enable site
+        enable_result = nginx_service.enable_site()
+        if not enable_result['success']:
+            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.automation_error = enable_result.get('error', 'Nginx enable failed')
+            domain_instance.save()
+            return {
+                'success': False,
+                'step': 'nginx_enable',
+                'error': enable_result.get('error', 'Nginx enable failed')
+            }
+
+        # Reload Nginx
+        reload_result = NginxConfigService.full_nginx_reload()
+        if not reload_result['success']:
+            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.automation_error = reload_result.get('error', 'Nginx reload failed')
+            domain_instance.save()
+            return {
+                'success': False,
+                'step': 'nginx_reload',
+                'error': reload_result.get('error', 'Nginx reload failed')
+            }
+
+        # Step 4: Mark as Active
+        domain_instance.status = CustomDomain.Status.ACTIVE
+        domain_instance.activated_at = timezone.now()
+        domain_instance.nginx_configured_at = timezone.now()
+        domain_instance.nginx_enabled = True
+        domain_instance.nginx_config_path = nginx_service.config_path
+        domain_instance.save()
+
+        # Clear caches
+        cache.delete_pattern(f"verified_domain_*")
+
+        return {
+            'success': True,
+            'message': f'Domain {domain_instance.domain} is now active!',
+            'domain': domain_instance.domain,
+            'status': domain_instance.status,
+            'ssl_verified': domain_instance.ssl_verified,
+            'nginx_configured': True
+        }
+
+    def deactivate_domain(self, domain_instance):
+        """Deactivate domain and remove Nginx config"""
+
+        # Remove Nginx configuration
+        nginx_service = NginxConfigService(domain_instance)
+
+        # Disable site
+        nginx_service.disable_site()
+
+        # Remove config file
+        nginx_service.remove_config()
+
+        # Reload Nginx
+        NginxConfigService.full_nginx_reload()
+
+        # Update domain status
+        domain_instance.status = CustomDomain.Status.DISABLED
+        domain_instance.nginx_enabled = False
+        domain_instance.save()
+
+        return {
+            'success': True,
+            'message': f'Domain {domain_instance.domain} has been deactivated'
+        }
+
+    def get_domain_status(self, domain):
+        """Get detailed domain status"""
+        try:
+            domain_obj = CustomDomain.objects.get(domain=domain)
+            nginx_service = NginxConfigService(domain_obj)
+
+            return {
+                'domain': domain,
+                'status': domain_obj.status,
+                'is_active': domain_obj.status == CustomDomain.Status.ACTIVE,
+                'ssl_verified': domain_obj.ssl_verified,
+                'ssl_expires_at': domain_obj.ssl_expires_at,
+                'nginx_configured': domain_obj.nginx_enabled,
+                'nginx_config_exists': os.path.exists(nginx_service.config_path),
+                'nginx_enabled_exists': os.path.exists(nginx_service.enabled_path),
+                'created_at': domain_obj.created_at,
+                'activated_at': domain_obj.activated_at
+            }
+        except CustomDomain.DoesNotExist:
+            return {
+                'domain': domain,
+                'exists': False
+            }
 
     def clear_dns_cache(self, domain: Optional[str] = None):
         """Clear DNS cache for a specific domain or all domains"""
