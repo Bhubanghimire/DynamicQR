@@ -1700,19 +1700,21 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             verification_service.verify_and_activate_domain(domain)
 
             return Response({
-                'success': True,
+                'data': {
+                    'domain': serializer.data,
+                    'status': domain.status
+                },
                 'message': 'Domain added and verified successfully!',
-                'domain': serializer.data,
-                'status': domain.status
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             # logger.error(f"Failed to start domain verification: {str(e)}")
             return Response({
-                'success': True,
+                'data': {
+                    'domain': serializer.data,
+                    'warning': str(e)
+                },
                 'message': 'Domain added but verification must be started manually.',
-                'domain': serializer.data,
-                'warning': str(e)
             }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
@@ -1722,7 +1724,7 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
         if domain.status == CustomDomain.Status.ACTIVE:
             return Response({
-                'success': False,
+                'data': {},
                 'message': 'Domain is already active'
             }, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1730,9 +1732,15 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         result = verification_service.verify_and_activate_domain(domain)
 
         if result['success']:
-            return Response(result, status=status.HTTP_200_OK)
+            return Response({
+                'data': result,
+                'message': result.get('message', 'Domain verified successfully')
+            }, status=status.HTTP_200_OK)
         else:
-            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'data': result,
+                'message': result.get('message', 'Verification failed')
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -1743,14 +1751,17 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
                                  CustomDomain.Status.SSL_PENDING,
                                  CustomDomain.Status.NGINX_PENDING]:
             return Response({
-                'success': False,
+                'data': {},
                 'message': f'Domain cannot be activated. Current status: {domain.status}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         verification_service = DomainVerificationService()
         result = verification_service.verify_and_activate_domain(domain)
 
-        return Response(result)
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Domain activated successfully')
+        })
 
     @action(detail=True, methods=['post'])
     def deactivate(self, request, pk=None):
@@ -1759,14 +1770,17 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
         if domain.status != CustomDomain.Status.ACTIVE:
             return Response({
-                'success': False,
+                'data': {},
                 'message': 'Only active domains can be deactivated'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         verification_service = DomainVerificationService()
         result = verification_service.deactivate_domain(domain)
 
-        return Response(result)
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Domain deactivated successfully')
+        })
 
     @action(detail=False, methods=['get'])
     def status(self, request):
@@ -1775,36 +1789,42 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
         if not domain:
             return Response({
-                'success': False,
-                'error': 'Domain parameter required'
+                'data': {},
+                'message': 'Domain parameter required'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         verification_service = DomainVerificationService()
         result = verification_service.get_domain_status(domain)
 
-        return Response(result)
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Domain status fetched successfully')
+        })
 
     @action(detail=False, methods=['post'])
     def auto_verify(self, request):
         """Auto-verify pending domains (admin only)"""
         if not request.user.is_staff:
             return Response({
-                'success': False,
-                'error': 'Only administrators can perform this action'
+                'data': {},
+                'message': 'Only administrators can perform this action'
             }, status=status.HTTP_403_FORBIDDEN)
 
         verification_service = DomainVerificationService()
         result = verification_service.auto_verify_pending_domains()
 
-        return Response(result)
+        return Response({
+            'data': result,
+            'message': result.get('message', 'Pending domains processed successfully')
+        })
 
     @action(detail=False, methods=['get'], url_path='verify/(?P<token>[^/.]+)')
     def verify_by_token(self, request, token=None):
         """Verify domain using token from URL"""
         if not token:
             return Response({
-                'success': False,
-                'error': 'Verification token is required'
+                'data': {},
+                'message': 'Verification token is required'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -1814,18 +1834,19 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             )
         except CustomDomain.DoesNotExist:
             return Response({
-                'success': False,
-                'error': 'Invalid verification token'
+                'data': {},
+                'message': 'Invalid verification token'
             }, status=status.HTTP_404_NOT_FOUND)
 
         # If domain is already active
         if domain.status == CustomDomain.Status.ACTIVE:
             return Response({
-                'success': True,
+                'data': {
+                    'domain': domain.domain,
+                    'status': domain.status,
+                    'activated_at': domain.activated_at
+                },
                 'message': 'Domain is already verified and active!',
-                'domain': domain.domain,
-                'status': domain.status,
-                'activated_at': domain.activated_at
             })
 
         # Start verification process
@@ -1834,30 +1855,32 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
         if result['success']:
             return Response({
-                'success': True,
+                'data': {
+                    'domain': domain.domain,
+                    'status': domain.status,
+                    'ssl_verified': domain.ssl_verified,
+                    'ssl_issuer': domain.ssl_issuer,
+                    'ssl_expires_at': domain.ssl_expires_at
+                },
                 'message': 'Domain verified and activated successfully!',
-                'domain': domain.domain,
-                'status': domain.status,
-                'ssl_verified': domain.ssl_verified,
-                'ssl_issuer': domain.ssl_issuer,
-                'ssl_expires_at': domain.ssl_expires_at
             })
         else:
             return Response({
-                'success': False,
+                'data': {
+                    'domain': domain.domain,
+                    'status': domain.status,
+                    'error': result.get('error'),
+                    'fix_instructions': [
+                        '1. Check your DNS CNAME record:',
+                        f'   - Type: CNAME',
+                        f'   - Host: {domain.domain}',
+                        f'   - Value: qrapi.cogniasystems.com',
+                        '2. Wait for DNS propagation (up to 24 hours)',
+                        '3. Try again after propagation',
+                        '4. If using Cloudflare, ensure proxy is disabled (grey cloud)'
+                    ]
+                },
                 'message': result.get('message', 'Verification failed'),
-                'domain': domain.domain,
-                'status': domain.status,
-                'error': result.get('error'),
-                'fix_instructions': [
-                    '1. Check your DNS CNAME record:',
-                    f'   - Type: CNAME',
-                    f'   - Host: {domain.domain}',
-                    f'   - Value: qrapi.cogniasystems.com',
-                    '2. Wait for DNS propagation (up to 24 hours)',
-                    '3. Try again after propagation',
-                    '4. If using Cloudflare, ensure proxy is disabled (grey cloud)'
-                ]
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -1869,7 +1892,7 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         if domain.status not in [CustomDomain.Status.SSL_PENDING,
                                  CustomDomain.Status.DNS_VERIFIED]:
             return Response({
-                'success': False,
+                'data': {},
                 'message': f'SSL provisioning cannot be retried. Current status: {domain.status}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1885,13 +1908,17 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
 
             # Try to continue the activation
             verification_service = DomainVerificationService()
-            return verification_service.verify_and_activate_domain(domain)
+            result = verification_service.verify_and_activate_domain(domain)
+            return Response({
+                'data': result,
+                'message': result.get('message', 'SSL provisioning successful')
+            })
         else:
             domain.automation_error = result.get('error', 'SSL provisioning failed')
             domain.save()
             return Response({
-                'success': False,
-                'error': result.get('error', 'SSL provisioning failed')
+                'data': result,
+                'message': result.get('error', 'SSL provisioning failed')
             }, status=status.HTTP_400_BAD_REQUEST)
 
 def perform_destroy(self, instance):
