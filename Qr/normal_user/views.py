@@ -24,7 +24,7 @@ from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
-    QRImportJob, CustomDomain
+    QRImportJob, CustomDomain, QRSchedule
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
@@ -608,6 +608,21 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             qr_code = self._get_qr_by_identifier(kwargs.get("pk"))
         except QRCode.DoesNotExist:
             raise NotFound()
+
+        qr_schedule = QRSchedule.objects.filter(qr_code=qr_code, is_deleted=False).first()
+        if qr_schedule and (qr_schedule.start_date or qr_schedule.end_date):
+            now = timezone.now()
+            # Enforce whichever boundary is configured.
+            if qr_schedule.start_date and now < qr_schedule.start_date:
+                return Response(
+                    {"data": {}, "message": "QR code is not active yet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if qr_schedule.end_date and now > qr_schedule.end_date:
+                return Response(
+                    {"data": {}, "message": "QR code has expired."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         is_enabled, password_saved = qr_code.is_password_enabled()
         if is_enabled:
