@@ -12,6 +12,7 @@ class EmailImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         email = row.get("email")
         cc = row.get("cc")
@@ -19,10 +20,11 @@ class EmailImporter(BaseQRImporter):
         pre_filled_message = row.get("pre_filled_message")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not email:
-            raise ValueError("email is required.")
+            errors.append("email is required.")
+        if errors:
+            raise ValueError(" | ".join(errors))
 
         qr_type = job.qr_type
 

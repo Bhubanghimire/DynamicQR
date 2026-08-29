@@ -1667,12 +1667,18 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                     }
                 )
             except Exception as exc:
+                error_message = str(exc)
+                error_list = [
+                    part.strip()
+                    for part in error_message.split(" | ")
+                    if part.strip()
+                ]
                 results.append(
                     {
                         "row": index,
                         "qrname": qrname,
                         "status": "invalid",
-                        "error": str(exc),
+                        "error": error_list if len(error_list) > 1 else error_message,
                     }
                 )
 

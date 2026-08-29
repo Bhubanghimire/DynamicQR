@@ -15,6 +15,7 @@ class VCardImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         first_name = row.get("FirstName")
         last_name = row.get("LastName")
@@ -28,13 +29,11 @@ class VCardImporter(BaseQRImporter):
         button_corners = row.get("ButtonCorners")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not first_name:
-            raise ValueError("FirstName is required.")
-
+            errors.append("FirstName is required.")
         if not last_name:
-            raise ValueError("LastName is required.")
+            errors.append("LastName is required.")
 
         item_pattern = re.compile(r"^Item(\d+)(Type|Title|Value|OrderNo)$")
         grouped_items = {}
@@ -65,18 +64,18 @@ class VCardImporter(BaseQRImporter):
                 continue
 
             if not item_type:
-                raise ValueError(f"Item{index}Type is required.")
+                errors.append(f"Item{index}Type is required.")
 
             if not item_title:
-                raise ValueError(f"Item{index}Title is required.")
+                errors.append(f"Item{index}Title is required.")
 
             if not item_value:
-                raise ValueError(f"Item{index}Value is required.")
+                errors.append(f"Item{index}Value is required.")
 
             try:
                 parsed_order_no = int(item_order_no) if item_order_no not in (None, "") else index
             except (TypeError, ValueError):
-                raise ValueError(f"Item{index}OrderNo must be an integer.")
+                errors.append(f"Item{index}OrderNo must be an integer.")
 
             items.append(
                 {
@@ -88,6 +87,8 @@ class VCardImporter(BaseQRImporter):
                 }
             )
 
+        if errors:
+            raise ValueError(" | ".join(errors))
         if not items:
             raise ValueError("At least one contact item is required.")
 

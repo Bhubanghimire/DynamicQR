@@ -13,18 +13,19 @@ class WhatsappImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         phone_number = row.get("phone_number")
         pre_filled_message = row.get("pre_filled_message")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not phone_number:
-            raise ValueError("Phone number is required.")
-
+            errors.append("Phone number is required.")
         if not pre_filled_message:
-            raise ValueError("Pre-filled message is required.")
+            errors.append("Pre-filled message is required.")
+        if errors:
+            raise ValueError(" | ".join(errors))
 
         qr_type = job.qr_type
 

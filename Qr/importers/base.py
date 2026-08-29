@@ -2,6 +2,16 @@ class BaseQRImporter:
 
     required_columns = []
 
+    def row_errors(self, row):
+        return []
+
+    def _missing(self, value):
+        return value in (None, "")
+
+    def add_required_error(self, errors, field_name, label=None):
+        errors.append(f"{label or field_name} is required.")
+        return errors
+
     def validate_headers(self, headers):
         headers = {
             header.strip()

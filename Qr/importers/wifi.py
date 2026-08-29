@@ -13,18 +13,19 @@ class WiFiImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         wifi_name = row.get("WifiName")
         password = row.get("password")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not wifi_name:
-            raise ValueError("WifiName is required.")
-
+            errors.append("WifiName is required.")
         if password is None or password == "":
-            raise ValueError("password is required.")
+            errors.append("password is required.")
+        if errors:
+            raise ValueError(" | ".join(errors))
 
         qr_type = job.qr_type
 

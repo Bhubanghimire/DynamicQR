@@ -21,6 +21,7 @@ class EventImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         title = row.get("Title")
         description = row.get("Description")
@@ -38,34 +39,27 @@ class EventImporter(BaseQRImporter):
         button_label = row.get("ButtonLabel")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not title:
-            raise ValueError("Title is required.")
-
+            errors.append("Title is required.")
         if not description:
-            raise ValueError("Description is required.")
-
+            errors.append("Description is required.")
         if not start_date:
-            raise ValueError("StartDate is required.")
-
+            errors.append("StartDate is required.")
         if not start_time:
-            raise ValueError("StartTime is required.")
-
+            errors.append("StartTime is required.")
         if not end_date:
-            raise ValueError("EndDate is required.")
-
+            errors.append("EndDate is required.")
         if not end_time:
-            raise ValueError("EndTime is required.")
-
+            errors.append("EndTime is required.")
         if not address:
-            raise ValueError("Address is required.")
-
+            errors.append("Address is required.")
         if not registration_url:
-            raise ValueError("RegistrationUrl is required.")
-
+            errors.append("RegistrationUrl is required.")
         if not button_label:
-            raise ValueError("ButtonLabel is required.")
+            errors.append("ButtonLabel is required.")
+        if errors:
+            raise ValueError(" | ".join(errors))
 
         qr_type = job.qr_type
 

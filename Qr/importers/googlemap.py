@@ -15,6 +15,7 @@ class GoogleMapImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         title = row.get("title")
         description = row.get("description")
@@ -26,19 +27,17 @@ class GoogleMapImporter(BaseQRImporter):
         corner_style = row.get("corner_style")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not title:
-            raise ValueError("title is required.")
-
+            errors.append("title is required.")
         if not description:
-            raise ValueError("description is required.")
-
+            errors.append("description is required.")
         if not map_url:
-            raise ValueError("map_url is required.")
-
+            errors.append("map_url is required.")
         if not address:
-            raise ValueError("address is required.")
+            errors.append("address is required.")
+        if errors:
+            raise ValueError(" | ".join(errors))
 
         qr = QRCode.objects.create(
             name=qr_name,

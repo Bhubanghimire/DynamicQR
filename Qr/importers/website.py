@@ -12,14 +12,16 @@ class WebsiteImporter(BaseQRImporter):
     ]
 
     def process_row(self, row, job, row_number):
+        errors = []
         qr_name = row.get("QrName")
         url = row.get("url")
 
         if not qr_name:
-            raise ValueError("QrName is required.")
-
+            errors.append("QrName is required.")
         if not url:
-            raise ValueError("URL is required.")
+            errors.append("URL is required.")
+        if errors:
+            raise ValueError(" | ".join(errors))
 
         qr_type = job.qr_type
 
