@@ -324,8 +324,6 @@ class DomainVerificationService:
         domain_instance.nginx_config_path = nginx_service.config_path
         domain_instance.save()
 
-        # Clear caches
-        cache.delete_pattern(f"verified_domain_*")
 
         return {
             'success': True,
