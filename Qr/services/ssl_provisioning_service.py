@@ -1,8 +1,10 @@
 # services/ssl_provisioning_service.py
-
+import os
 import shutil
 import subprocess
 import logging
+
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
