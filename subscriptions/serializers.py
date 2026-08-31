@@ -15,7 +15,7 @@ class DurationSerializer(serializers.ModelSerializer):
 
 class CheckoutSessionCreateSerializer(serializers.Serializer):
     product_id = serializers.CharField(required=False, allow_blank=False)
-    package_plan_id = serializers.UUIDField(required=False)
+    package_plan_id = serializers.CharField(required=False, allow_blank=False)
     quantity = serializers.IntegerField(min_value=1, default=1)
 
     def validate(self, attrs):
@@ -24,6 +24,13 @@ class CheckoutSessionCreateSerializer(serializers.Serializer):
 
         if not product_id and not package_plan_id:
             raise serializers.ValidationError("Provide either product_id or package_plan_id.")
+
+        if package_plan_id:
+            try:
+                from uuid import UUID
+                UUID(str(package_plan_id))
+            except (ValueError, TypeError):
+                raise serializers.ValidationError({"package_plan_id": "A valid UUID is required."})
 
         return attrs
 

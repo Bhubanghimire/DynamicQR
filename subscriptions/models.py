@@ -1,4 +1,8 @@
+import uuid
+
 from django.db import models
+from django.utils import timezone
+
 from accounts.models import User
 from system.models import SoftDeletable
 
@@ -288,6 +292,74 @@ class Subscription(SoftDeletable):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def get_or_create_subscription(cls, invoice):
+        """
+        Get or create subscription from invoice
+        This handles both new subscriptions and renewals
+        """
+        # Check for existing active subscription
+        subscription = cls.objects.filter(
+            user=invoice.user,
+            package_plan=invoice.package_plan,
+            status=cls.Status.ACTIVE
+        ).first()
+
+        if not subscription:
+            # Create new subscription
+            duration = invoice.package_plan.duration
+            start_date = timezone.now()
+            end_date = start_date + timezone.timedelta(days=duration.days)
+
+            subscription = cls.objects.create(
+                user=invoice.user,
+                package_plan=invoice.package_plan,
+                current_invoice=invoice,
+                dodo_subscription_id=invoice.dodo_subscription_id,
+                start_date=start_date,
+                end_date=end_date,
+                status=cls.Status.ACTIVE,
+                auto_renew=True
+            )
+        else:
+            # Extend existing subscription
+            if subscription.end_date < timezone.now():
+                # Subscription expired, restart from now
+                subscription.start_date = timezone.now()
+                subscription.end_date = timezone.now() + timezone.timedelta(
+                    days=invoice.package_plan.duration.days
+                )
+            else:
+                # Extend from current end date
+                subscription.end_date += timezone.timedelta(
+                    days=invoice.package_plan.duration.days
+                )
+
+            subscription.current_invoice = invoice
+            subscription.status = cls.Status.ACTIVE
+            subscription.dodo_subscription_id = invoice.dodo_subscription_id or subscription.dodo_subscription_id
+            subscription.save()
+
+        return subscription
+
+    def is_active(self):
+        """Check if subscription is currently active"""
+        return self.status == self.Status.ACTIVE and self.end_date > timezone.now()
+
+    def days_remaining(self):
+        """Get days remaining in subscription"""
+        if not self.is_active():
+            return 0
+        delta = self.end_date - timezone.now()
+        return delta.days
+
+    def cancel(self):
+        """Cancel subscription"""
+        self.status = self.Status.CANCELLED
+        self.cancelled_at = timezone.now()
+        self.auto_renew = False
+        self.save()
+        return self
 
 
 # ============================================
@@ -368,6 +440,46 @@ class Invoice(SoftDeletable):
 
     def __str__(self):
         return f"{self.invoice_number} - {self.user.email} ({self.total} {self.currency})"
+
+    @staticmethod
+    def generate_invoice_number():
+        return f"INV-{uuid.uuid4().hex[:12].upper()}"
+
+    def save(self, *args, **kwargs):
+        if not self.invoice_number:
+            self.invoice_number = self.generate_invoice_number()
+        super().save(*args, **kwargs)
+
+    def mark_as_paid(self, payment_id=None, subscription_id=None):
+        """Mark invoice as paid and update Dodo references"""
+        self.status = self.Status.PAID
+        self.paid_at = timezone.now()
+
+        if payment_id:
+            self.dodo_payment_id = payment_id
+        if subscription_id:
+            self.dodo_subscription_id = subscription_id
+
+        self.save()
+
+        # Create subscription if this is a subscription plan
+        if self.package_plan and self.package_plan.is_subscription:
+            subscription = Subscription.get_or_create_subscription(self)
+
+        return self
+
+    def mark_as_failed(self):
+        """Mark invoice as failed"""
+        self.status = self.Status.FAILED
+        self.save()
+        return self
+
+    def refund(self, reason=None):
+        """Mark invoice as refunded"""
+        self.status = self.Status.REFUNDED
+        self.metadata['refund_reason'] = reason
+        self.save()
+        return self
 
 
 # ============================================
