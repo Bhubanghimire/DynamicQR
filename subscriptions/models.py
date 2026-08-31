@@ -47,8 +47,8 @@ class Duration(SoftDeletable):
 
 
 class PackagePlan(SoftDeletable):
-    package = models.ForeignKey(Package, on_delete=models.PROTECT)
-    duration = models.ForeignKey(Duration, on_delete=models.RESTRICT)
+    package = models.ForeignKey(Package, on_delete=models.PROTECT, null=True)
+    duration = models.ForeignKey(Duration, on_delete=models.RESTRICT, null=True)
     price =models.DecimalField(max_digits=10, decimal_places=2)
     currency =models.CharField(max_length=10)
     # Limits (directly on plan for flexibility)

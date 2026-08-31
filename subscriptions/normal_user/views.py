@@ -7,9 +7,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.models import Project, QRCode
 from DynamicOCR.pagination import CustomPagination
-from subscriptions.models import Invoice, Package, PackagePlan, Subscription
+from subscriptions.models import Duration, Invoice, Package, PackagePlan, Subscription
 from subscriptions.serializers import (
     InvoiceSerializer,
+    DurationSerializer,
     PackageSerializer,
     SubscriptionUsageSerializer,
 )
@@ -59,6 +60,46 @@ class PackageSchema(PaginatedAutoSchema):
     def get_operation_id(self, path, method):
         return f"package_{self.view.action}"
 
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if method.upper() == "GET":
+            params.append(
+                {
+                    "name": "duration",
+                    "required": False,
+                    "in": "query",
+                    "description": "Filter packages by duration UUID.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            )
+        return params
+
+
+class DurationSchema(PaginatedAutoSchema):
+    def get_tags(self, path, method):
+        return ["Subscription"]
+
+    def get_operation_id(self, path, method):
+        return f"duration_{self.view.action}"
+
+
+class DurationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    schema = DurationSchema()
+    serializer_class = DurationSerializer
+    permission_classes_by_action = {
+        "list": [AllowAny],
+    }
+    pagination_class = CustomPagination
+
+    def get_permissions(self):
+        try:
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError:
+            return [permission() for permission in self.permission_classes]
+
+    def get_queryset(self):
+        return Duration.objects.all().order_by("days", "name")
+
 
 class PackageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     schema = PackageSchema()
@@ -75,10 +116,15 @@ class PackageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             return [permission() for permission in self.permission_classes]
 
     def get_queryset(self):
+        duration = self.request.query_params.get("duration")
+        plan_queryset = PackagePlan.objects.filter(is_active=True)
+        if duration:
+            plan_queryset = plan_queryset.filter(duration_id=duration)
+
         queryset = Package.objects.filter(is_active=True).prefetch_related(
             Prefetch(
                 "packageplan_set",
-                queryset=PackagePlan.objects.filter(is_active=True).select_related("duration").order_by(
+                queryset=plan_queryset.select_related("duration").order_by(
                     "duration__days",
                     "duration__name",
                 ),
@@ -88,6 +134,9 @@ class PackageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         search = self.request.query_params.get("search")
         if search:
             queryset = queryset.filter(Q(title__icontains=search) | Q(description__icontains=search))
+
+        if duration:
+            queryset = queryset.filter(packageplan__is_active=True, packageplan__duration_id=duration).distinct()
         return queryset
 
 
