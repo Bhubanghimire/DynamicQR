@@ -147,6 +147,20 @@ class InvoiceSchema(PaginatedAutoSchema):
     def get_operation_id(self, path, method):
         return f"invoice_{self.view.action}"
 
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if method.upper() == "GET":
+            params.append(
+                {
+                    "name": "duration",
+                    "required": False,
+                    "in": "query",
+                    "description": "Filter invoices by package plan duration UUID.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            )
+        return params
+
 
 class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     schema = InvoiceSchema()
@@ -185,6 +199,10 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 | Q(package_plan__package__title__icontains=search)
                 | Q(notes__icontains=search)
             )
+
+        duration = self.request.query_params.get("duration")
+        if duration:
+            queryset = queryset.filter(package_plan__duration_id=duration)
         return queryset
 
 
