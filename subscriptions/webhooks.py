@@ -8,12 +8,67 @@ from django.views.decorators.http import require_http_methods
 from django.conf import settings
 from django.utils import timezone
 from dodopayments import DodoPayments
+from rest_framework.decorators import api_view, schema
+from rest_framework.schemas.openapi import AutoSchema
 
 from .models import Invoice, Subscription
 
 logger = logging.getLogger(__name__)
 
 
+class DodoWebhookSchema(AutoSchema):
+    def get_tags(self, path, method):
+        return ["Subscription"]
+
+    def get_operation_id(self, path, method):
+        return "dodo_webhook"
+
+    def get_request_body(self, path, method):
+        if method.upper() != "POST":
+            return {}
+        return {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "description": "Dodo event type, for example payment.succeeded.",
+                            },
+                            "data": {
+                                "type": "object",
+                                "description": "Webhook event payload.",
+                                "properties": {
+                                    "payment_id": {
+                                        "type": "string",
+                                        "description": "Dodo payment identifier.",
+                                    },
+                                    "subscription_id": {
+                                        "type": "string",
+                                        "description": "Dodo subscription identifier when available.",
+                                    },
+                                    "metadata": {
+                                        "type": "object",
+                                        "properties": {
+                                            "invoice_number": {
+                                                "type": "string",
+                                                "description": "Invoice number stored in the checkout metadata.",
+                                            }
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        "required": ["type", "data"],
+                    }
+                }
+            }
+        }
+
+
+@api_view(["POST"])
+@schema(DodoWebhookSchema())
 @csrf_exempt
 @require_http_methods(["POST"])
 def dodo_webhook(request):
