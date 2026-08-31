@@ -297,12 +297,14 @@ DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 # SESSION_COOKIE_SAMESITE = 'None'
 
 REFRESH_COOKIE_DOMAIN = config("REFRESH_COOKIE_DOMAIN", default=None)
+
 FRONTEND_URL = config("FRONTEND_URL", default=None)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 CUSTOM_DOMAIN_CNAME_TARGET="qrapi.cogniasystems.com"
 BASE_DOMAIN="qrapi.cogniasystems.com"
-
+DODO_PAYMENTS_API_KEY = config("DODO_API_KEY", default=None)
+print(DODO_PAYMENTS_API_KEY)
 LETSENCRYPT_EMAIL = "admin@yourdomain.com"
 
 # DNS Settings
@@ -318,3 +320,22 @@ BACKEND_HOST = "127.0.0.1:8001"
 PROXY_CONNECT_TIMEOUT = "60s"
 PROXY_SEND_TIMEOUT = "120s"
 PROXY_READ_TIMEOUT = "120s"
+
+#
+#
+# from dodopayments import DodoPayments
+# DODO_API_KEY=-raJ3ApMOU0NgevA.eOzq9OL_esB_rjTSQSz-iJwZ8feSeLl2vwoZ4ovtq01dsGn3
+#
+# client = DodoPayments(
+#     bearer_token=DODO_PAYMENTS_API_KEY,
+#     environment="test_mode",
+# )
+# session = client.checkout_sessions.create(
+#     product_cart=[
+#         {
+#             "product_id": "pdt_0NmWwpmViOK71N77YS7MR",
+#             "quantity": 1,
+#         }
+#     ]
+# )
+# print(session)
