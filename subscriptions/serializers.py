@@ -158,9 +158,20 @@ class UsageQuotaSerializer(serializers.Serializer):
     usage_percent = serializers.FloatField()
 
 
+class UsagePackageSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    title = serializers.CharField()
+    is_free = serializers.BooleanField()
+    is_active = serializers.BooleanField()
+
+
 class SubscriptionUsageSerializer(serializers.Serializer):
     subscription = SubscriptionSummarySerializer(allow_null=True)
     subscription_status = serializers.CharField()
+    package = UsagePackageSerializer(allow_null=True)
+    package_title = serializers.CharField(allow_null=True, allow_blank=True)
+    package_plan = InvoicePackagePlanSerializer(allow_null=True)
+    qr_generated_count = serializers.IntegerField()
     qr_usage = UsageQuotaSerializer()
     scan_usage = UsageQuotaSerializer()
     total_scan_count = serializers.IntegerField()

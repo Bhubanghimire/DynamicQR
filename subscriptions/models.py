@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.db import models
 from django.utils import timezone
@@ -39,6 +40,14 @@ class Package(SoftDeletable):
 
     def __str__(self):
         return self.title
+
+    @classmethod
+    def get_default_free_package(cls):
+        return (
+            cls.objects.filter(is_free=True, is_active=True)
+            .order_by("display_order", "title", "id")
+            .first()
+        )
 
 
 class Duration(SoftDeletable):
@@ -83,6 +92,15 @@ class PackagePlan(SoftDeletable):
 
     def __str__(self):
         return f"{self.package.title}"
+
+    @classmethod
+    def get_default_free_plan(cls):
+        return (
+            cls.objects.select_related("package", "duration")
+            .filter(is_active=True, package__is_active=True, package__is_free=True)
+            .order_by("duration__days", "duration__name", "id")
+            .first()
+        )
 
     class Meta:
         constraints = [
@@ -353,15 +371,88 @@ class Subscription(SoftDeletable):
 
         return subscription
 
+    @classmethod
+    def get_active_subscription_for_user(cls, user):
+        now = timezone.now()
+        return (
+            cls.objects.filter(
+                user=user,
+                status=cls.Status.ACTIVE,
+                expires_at__gt=now,
+            )
+            .select_related("package_plan", "package_plan__package", "package_plan__duration")
+            .order_by("-expires_at", "-created_at")
+            .first()
+        )
+
+    @classmethod
+    def get_or_create_default_subscription(cls, user):
+        active_subscription = cls.get_active_subscription_for_user(user)
+        if active_subscription:
+            return active_subscription
+
+        free_plan = PackagePlan.get_default_free_plan()
+        if not free_plan:
+            return None
+
+        now = timezone.now()
+        duration_days = free_plan.duration.days if free_plan.duration and free_plan.duration.days else None
+        expires_at = now + timezone.timedelta(days=duration_days or 36500)
+
+        subscription = (
+            cls.objects.filter(user=user, package_plan=free_plan)
+            .select_related("package_plan", "package_plan__package", "package_plan__duration")
+            .order_by("-expires_at", "-created_at")
+            .first()
+        )
+
+        if subscription:
+            if subscription.expires_at and subscription.expires_at < now:
+                subscription.started_at = now
+            subscription.status = cls.Status.ACTIVE
+            subscription.expires_at = expires_at
+            subscription.price = Decimal("0.00")
+            subscription.currency = free_plan.currency or "USD"
+            subscription.qr_limit = free_plan.max_qrs
+            subscription.scan_limit = free_plan.max_scans
+            subscription.scan_limit_remaining = free_plan.max_scans
+            subscription.team_member_limit = free_plan.max_team_members
+            subscription.features = free_plan.features or {}
+            subscription.auto_renew = False
+            subscription.save()
+            return subscription
+
+        return cls.objects.create(
+            user=user,
+            package_plan=free_plan,
+            payment_method=None,
+            price=Decimal("0.00"),
+            currency=free_plan.currency or "USD",
+            qr_limit=free_plan.max_qrs,
+            scan_limit=free_plan.max_scans,
+            scan_limit_remaining=free_plan.max_scans,
+            team_member_limit=free_plan.max_team_members,
+            features=free_plan.features or {},
+            started_at=now,
+            expires_at=expires_at,
+            status=cls.Status.ACTIVE,
+            auto_renew=False,
+            dodo_subscription_id=None,
+        )
+
+    @classmethod
+    def get_usage_subscription_for_user(cls, user):
+        return cls.get_active_subscription_for_user(user) or cls.get_or_create_default_subscription(user)
+
     def is_active(self):
         """Check if subscription is currently active"""
-        return self.status == self.Status.ACTIVE and self.end_date > timezone.now()
+        return self.status == self.Status.ACTIVE and self.expires_at > timezone.now()
 
     def days_remaining(self):
         """Get days remaining in subscription"""
         if not self.is_active():
             return 0
-        delta = self.end_date - timezone.now()
+        delta = self.expires_at - timezone.now()
         return delta.days
 
     def cancel(self):

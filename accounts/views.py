@@ -29,6 +29,7 @@ from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSeri
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
     ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer
+from subscriptions.models import Subscription
 
 from django.core import signing
 from urllib.parse import urlencode
@@ -243,16 +244,18 @@ class AuthViewSet(viewsets.ViewSet):
         except OTP.DoesNotExist:
             return Response({'message': 'OTP not found'}, status=HTTP_400_BAD_REQUEST)
 
-        user = User.objects.create_user(
-            email=data['email'],
-            password=data['password'],
-            full_name=data.get('full_name', ''),
-            phone=data.get('phone', ''),
-            birth_date=data.get('birth_date'),
-            gender=data.get('gender'),
-            user_type_id=data.get('user_type').pk if data.get('user_type') else "004dbed1-bb73-496a-b5f2-a244b42de122",
-        )
-        check_otp.delete()
+        with transaction.atomic():
+            user = User.objects.create_user(
+                email=data['email'],
+                password=data['password'],
+                full_name=data.get('full_name', ''),
+                phone=data.get('phone', ''),
+                birth_date=data.get('birth_date'),
+                gender=data.get('gender'),
+                user_type_id=data.get('user_type').pk if data.get('user_type') else "004dbed1-bb73-496a-b5f2-a244b42de122",
+            )
+            Subscription.get_or_create_default_subscription(user)
+            check_otp.delete()
         access_token = generate_access_token(user)
         refresh_token = generate_refresh_token(user)
 
