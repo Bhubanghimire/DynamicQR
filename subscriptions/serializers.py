@@ -13,6 +13,21 @@ class DurationSerializer(serializers.ModelSerializer):
         )
 
 
+class CheckoutSessionCreateSerializer(serializers.Serializer):
+    product_id = serializers.CharField(required=False, allow_blank=False)
+    package_plan_id = serializers.UUIDField(required=False)
+    quantity = serializers.IntegerField(min_value=1, default=1)
+
+    def validate(self, attrs):
+        product_id = attrs.get("product_id")
+        package_plan_id = attrs.get("package_plan_id")
+
+        if not product_id and not package_plan_id:
+            raise serializers.ValidationError("Provide either product_id or package_plan_id.")
+
+        return attrs
+
+
 class PackagePlanSerializer(serializers.ModelSerializer):
     duration = DurationSerializer(read_only=True)
 

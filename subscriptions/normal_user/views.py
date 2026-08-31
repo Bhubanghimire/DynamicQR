@@ -1,14 +1,16 @@
+from django.conf import settings
 from django.db.models import Q, Prefetch
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from rest_framework.response import Response
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.models import Project, QRCode
 from DynamicOCR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, Subscription
 from subscriptions.serializers import (
+    CheckoutSessionCreateSerializer,
     InvoiceSerializer,
     DurationSerializer,
     PackageSerializer,
@@ -293,3 +295,89 @@ class UsageViewSet(viewsets.GenericViewSet):
 
         serializer = self.get_serializer(payload)
         return Response(serializer.data)
+
+
+class PaymentSchema(PaginatedAutoSchema):
+    def get_tags(self, path, method):
+        return ["Subscription"]
+
+    def get_operation_id(self, path, method):
+        return f"payment_{self.view.action}"
+
+
+class PaymentViewSet(viewsets.ViewSet):
+    schema = PaymentSchema()
+    permission_classes_by_action = {
+        "create": [IsAuthenticated],
+    }
+
+    def get_permissions(self):
+        try:
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError:
+            return [permission() for permission in self.permission_classes]
+
+    def _session_to_payload(self, session):
+        if hasattr(session, "model_dump"):
+            return session.model_dump()
+        if isinstance(session, dict):
+            return session
+        if hasattr(session, "__dict__"):
+            return {
+                key: value
+                for key, value in vars(session).items()
+                if not key.startswith("_")
+            }
+        return {"session": str(session)}
+
+    def create(self, request):
+        serializer = CheckoutSessionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product_id = serializer.validated_data.get("product_id")
+        package_plan_id = serializer.validated_data.get("package_plan_id")
+        quantity = serializer.validated_data.get("quantity", 1)
+
+        if not product_id and package_plan_id:
+            plan = PackagePlan.objects.select_related("package", "duration").filter(id=package_plan_id).first()
+            if not plan:
+                return Response(
+                    {"detail": "Package plan not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            product_id = str(plan.id)
+
+        if not settings.DODO_PAYMENTS_API_KEY:
+            return Response(
+                {"detail": "Dodo payments API key is not configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from dodopayments import DodoPayments
+
+            client = DodoPayments(
+                bearer_token=settings.DODO_PAYMENTS_API_KEY,
+                environment="test_mode" if settings.DEBUG else "live_mode",
+            )
+            session = client.checkout_sessions.create(
+                product_cart=[
+                    {
+                        "product_id": product_id,
+                        "quantity": quantity,
+                    }
+                ]
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": "Failed to create checkout session.", "error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "message": "Checkout session created successfully.",
+                "data": self._session_to_payload(session),
+            },
+            status=status.HTTP_201_CREATED,
+        )
