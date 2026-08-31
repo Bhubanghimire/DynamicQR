@@ -477,7 +477,6 @@ class PaymentViewSet(viewsets.ViewSet):
             status=Invoice.Status.PENDING,
             metadata={
                 "user_email": request.user.email,
-                # "username": request.user.username,
                 "plan_name": f"{plan.package} - {plan.duration.name if plan.duration else 'One-time'}",
                 "plan_id": str(plan.id),
                 "duration_days": plan.duration.days if plan.duration else 0,
@@ -499,7 +498,7 @@ class PaymentViewSet(viewsets.ViewSet):
                 ],
                 "customer": {
                     "email": request.user.email,
-                    "name": request.user.get_full_name() or request.user.username,
+                    "name": request.user.get_full_name(),
                 },
                 "return_url": f"{settings.FRONTEND_URL}/payment/success?invoice={invoice.invoice_number}",
                 "cancel_url": f"{settings.FRONTEND_URL}/payment/cancel?invoice={invoice.invoice_number}",
