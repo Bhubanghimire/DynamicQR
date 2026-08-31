@@ -500,8 +500,8 @@ class PaymentViewSet(viewsets.ViewSet):
                     "email": request.user.email,
                     "name": request.user.get_full_name(),
                 },
-                "return_url": f"{settings.FRONTEND_URL}/payment/success?invoice={invoice.invoice_number}",
-                "cancel_url": f"{settings.FRONTEND_URL}/payment/cancel?invoice={invoice.invoice_number}",
+                "return_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
+                "cancel_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
                 "metadata": {
                     "invoice_id": str(invoice.id),
                     "invoice_number": invoice.invoice_number,
