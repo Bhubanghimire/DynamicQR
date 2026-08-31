@@ -323,19 +323,19 @@ PROXY_READ_TIMEOUT = "120s"
 
 #
 #
-# from dodopayments import DodoPayments
+from dodopayments import DodoPayments
 # DODO_API_KEY=-raJ3ApMOU0NgevA.eOzq9OL_esB_rjTSQSz-iJwZ8feSeLl2vwoZ4ovtq01dsGn3
-#
-# client = DodoPayments(
-#     bearer_token=DODO_PAYMENTS_API_KEY,
-#     environment="test_mode",
-# )
-# session = client.checkout_sessions.create(
-#     product_cart=[
-#         {
-#             "product_id": "pdt_0NmWwpmViOK71N77YS7MR",
-#             "quantity": 1,
-#         }
-#     ]
-# )
-# print(session)
+
+client = DodoPayments(
+    bearer_token=DODO_PAYMENTS_API_KEY,
+    environment="test_mode",
+)
+session = client.checkout_sessions.create(
+    product_cart=[
+        {
+            "product_id": "pdt_0NmWwpmViOK71N77YS7MR",
+            "quantity": 1,
+        }
+    ]
+)
+print(session)
