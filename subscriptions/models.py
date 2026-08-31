@@ -53,6 +53,7 @@ class Package(SoftDeletable):
 class Duration(SoftDeletable):
     name = models.CharField(max_length=100, unique=True)
     days = models.PositiveIntegerField(null=True, blank=True)
+    discount = models.PositiveIntegerField()
 
     def __str__(self):
         return self.name

@@ -9,6 +9,7 @@ class DurationSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "discount",
             "days",
         )
 
