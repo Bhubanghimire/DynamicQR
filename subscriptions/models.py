@@ -93,9 +93,6 @@ class PackagePlan(SoftDeletable):
         ]
 
     def save(self, *args, **kwargs):
-        # If package is free, ensure price is 0
-        if self.package and self.package.is_free:
-            self.price = 0
         super().save(*args, **kwargs)
 
 
@@ -298,6 +295,10 @@ class Subscription(SoftDeletable):
         Get or create subscription from invoice
         This handles both new subscriptions and renewals
         """
+        duration = invoice.package_plan.duration
+        duration_days = duration.days or 0
+        now = timezone.now()
+
         # Check for existing active subscription
         subscription = cls.objects.filter(
             user=invoice.user,
@@ -307,37 +308,47 @@ class Subscription(SoftDeletable):
 
         if not subscription:
             # Create new subscription
-            duration = invoice.package_plan.duration
-            start_date = timezone.now()
-            end_date = start_date + timezone.timedelta(days=duration.days)
+            start_date = now
+            end_date = start_date + timezone.timedelta(days=duration_days)
 
             subscription = cls.objects.create(
                 user=invoice.user,
                 package_plan=invoice.package_plan,
-                current_invoice=invoice,
-                dodo_subscription_id=invoice.dodo_subscription_id,
-                start_date=start_date,
-                end_date=end_date,
+                payment_method=invoice.payment_method,
+                price=invoice.total,
+                currency=invoice.currency,
+                qr_limit=invoice.package_plan.max_qrs,
+                scan_limit=invoice.package_plan.max_scans,
+                scan_limit_remaining=invoice.package_plan.max_scans,
+                team_member_limit=invoice.package_plan.max_team_members,
+                features=invoice.package_plan.features or {},
+                started_at=start_date,
+                expires_at=end_date,
                 status=cls.Status.ACTIVE,
-                auto_renew=True
+                auto_renew=True,
+                dodo_subscription_id=invoice.dodo_subscription_id or "",
             )
         else:
             # Extend existing subscription
-            if subscription.end_date < timezone.now():
+            if subscription.expires_at < now:
                 # Subscription expired, restart from now
-                subscription.start_date = timezone.now()
-                subscription.end_date = timezone.now() + timezone.timedelta(
-                    days=invoice.package_plan.duration.days
-                )
+                subscription.started_at = now
+                subscription.expires_at = now + timezone.timedelta(days=duration_days)
             else:
                 # Extend from current end date
-                subscription.end_date += timezone.timedelta(
-                    days=invoice.package_plan.duration.days
-                )
+                subscription.expires_at += timezone.timedelta(days=duration_days)
 
-            subscription.current_invoice = invoice
             subscription.status = cls.Status.ACTIVE
-            subscription.dodo_subscription_id = invoice.dodo_subscription_id or subscription.dodo_subscription_id
+            subscription.price = invoice.total
+            subscription.currency = invoice.currency
+            subscription.payment_method = invoice.payment_method
+            subscription.qr_limit = invoice.package_plan.max_qrs
+            subscription.scan_limit = invoice.package_plan.max_scans
+            subscription.scan_limit_remaining = invoice.package_plan.max_scans
+            subscription.team_member_limit = invoice.package_plan.max_team_members
+            subscription.features = invoice.package_plan.features or {}
+            if invoice.dodo_subscription_id:
+                subscription.dodo_subscription_id = invoice.dodo_subscription_id
             subscription.save()
 
         return subscription
@@ -411,6 +422,29 @@ class Invoice(SoftDeletable):
     total = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=3, default="NPR")
 
+    # Dodo Payments references - ADD THESE FIELDS
+    dodo_checkout_session_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Checkout session ID from Dodo Payments"
+    )
+    dodo_payment_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Payment ID from Dodo Payments"
+    )
+    dodo_subscription_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text="Subscription ID from Dodo Payments"
+    )
+
     # Dates
     due_date = models.DateTimeField()
     issued_at = models.DateTimeField(auto_now_add=True)
@@ -426,6 +460,8 @@ class Invoice(SoftDeletable):
     # Additional data
     invoice_items = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)  # ADD THIS FIELD
+
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -462,9 +498,12 @@ class Invoice(SoftDeletable):
 
         self.save()
 
-        # Create subscription if this is a subscription plan
-        if self.package_plan and self.package_plan.is_subscription:
+        # Create or extend the user's subscription for this paid invoice.
+        if self.package_plan:
             subscription = Subscription.get_or_create_subscription(self)
+            self.subscription = subscription
+            if subscription:
+                self.save(update_fields=["subscription"])
 
         return self
 
@@ -478,7 +517,7 @@ class Invoice(SoftDeletable):
         """Mark invoice as refunded"""
         self.status = self.Status.REFUNDED
         self.metadata['refund_reason'] = reason
-        self.save()
+        self.save(update_fields=["metadata", "status"])
         return self
 
 

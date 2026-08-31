@@ -185,7 +185,6 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     def get_queryset(self):
         queryset = Invoice.objects.filter(
             user=self.request.user,
-            status=Invoice.Status.PAID,
         ).select_related(
             "package_plan",
             "package_plan__package",
@@ -204,6 +203,10 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
                 | Q(package_plan__package__title__icontains=search)
                 | Q(notes__icontains=search)
             )
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            queryset = queryset.filter(status=status_param)
 
         duration = self.request.query_params.get("duration")
         if duration:
@@ -350,10 +353,31 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# views.py - Updated PaymentViewSet
+
+import re
+import logging
+from uuid import UUID
+from decimal import Decimal
+
+from django.conf import settings
+from django.utils import timezone
+from rest_framework import viewsets, status
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from dodopayments import DodoPayments
+
+
+
+logger = logging.getLogger(__name__)
+
 
 class PaymentViewSet(viewsets.ViewSet):
     schema = PaymentSchema()
-    STATIC_DODO_PRODUCT_ID = "pdt_0NmWwpmViOK71N77YS7MR"
+
+    # Single Dodo product ID for all payments
+    STATIC_DODO_PRODUCT_ID = "pdt_0NmWwpmViOK71N77YS7MR"  # Your fixed product ID
+
     permission_classes_by_action = {
         "create": [IsAuthenticated],
         "status": [IsAuthenticated],
@@ -388,14 +412,26 @@ class PaymentViewSet(viewsets.ViewSet):
             environment="test_mode" if settings.DEBUG else "live_mode",
         )
 
+    def _extract_session_id(self, payload):
+        """Extract session ID from payload"""
+        session_id = payload.get("id") or payload.get("session_id")
+        if not session_id:
+            checkout_url = payload.get("checkout_url") or ""
+            match = re.search(r"(cks_[A-Za-z0-9]+)", checkout_url)
+            if match:
+                session_id = match.group(1)
+        return session_id
+
     def create(self, request):
         """
-        Create checkout session
+        Create checkout session using single Dodo product
+        The price comes from PackagePlan
         """
         serializer = CheckoutSessionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         package_plan_id = serializer.validated_data["package_plan_id"]
+
         try:
             package_plan_uuid = UUID(str(package_plan_id))
         except (ValueError, TypeError):
@@ -429,20 +465,24 @@ class PaymentViewSet(viewsets.ViewSet):
             amount=plan.price,
             tax=0,
             total=plan.price,
-            currency=plan.currency,
+            currency=plan.currency or "USD",
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
-            # metadata={
-            #     "user_email": request.user.email,
-            #     # "username": request.user.username,
-            #     "plan_name": f"{plan.package} - {plan.duration.name}"
-            # }
+            metadata={
+                "user_email": request.user.email,
+                # "username": request.user.username,
+                "plan_name": f"{plan.package} - {plan.duration.name if plan.duration else 'One-time'}",
+                "plan_id": str(plan.id),
+                "duration_days": plan.duration.days if plan.duration else 0,
+                "is_subscription": plan.is_subscription if hasattr(plan, 'is_subscription') else True,
+            }
         )
 
         try:
             client = self._get_dodo_client()
 
-            # Create checkout session
+            # Create checkout session with the single product
+            # The actual price is stored in metadata
             session_params = {
                 "product_cart": [
                     {
@@ -462,13 +502,18 @@ class PaymentViewSet(viewsets.ViewSet):
                     "user_id": str(request.user.id),
                     "user_email": request.user.email,
                     "package_plan_id": str(plan.id),
+                    "package_plan_price": str(plan.price),
+                    "package_plan_currency": plan.currency or "USD",
+                    "plan_name": f"{plan.package.title} - {plan.duration.name if plan.duration else 'One-time'}",
+                    "duration_days": str(plan.duration.days if plan.duration else 0),
+                    "is_subscription": str(plan.is_subscription if hasattr(plan, 'is_subscription') else True),
                 }
             }
 
             session = client.checkout_sessions.create(**session_params)
 
         except Exception as e:
-            logger.error(f"Failed to create checkout session: {str(e)}")
+            logger.error(f"❌ Failed to create checkout session: {str(e)}", exc_info=True)
             invoice.status = Invoice.Status.CANCELLED
             invoice.save(update_fields=["status"])
 
@@ -477,22 +522,32 @@ class PaymentViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Process session response
         payload = self._session_to_payload(session)
-        checkout_session_id = payload.get("id") or payload.get("session_id")
-        if not checkout_session_id:
-            checkout_url = payload.get("checkout_url") or ""
-            match = re.search(r"(cks_[A-Za-z0-9]+)", checkout_url)
-            if match:
-                checkout_session_id = match.group(1)
+        checkout_session_id = self._extract_session_id(payload)
+        checkout_url = payload.get("checkout_url")
+
+        # Save session ID to invoice
+        if checkout_session_id:
+            invoice.dodo_checkout_session_id = checkout_session_id
+            invoice.save(update_fields=["dodo_checkout_session_id"])
+
+        logger.info(f"✅ Checkout session created for invoice {invoice.invoice_number}")
+        logger.info(f"   Session ID: {checkout_session_id}")
+        logger.info(f"   Amount: {plan.price} {plan.currency}")
+        logger.info(f"   Product ID: {self.STATIC_DODO_PRODUCT_ID}")
 
         return Response(
             {
                 "message": "Checkout session created successfully.",
                 "data": {
-                    "checkout_url": payload.get("checkout_url"),
+                    "checkout_url": checkout_url,
                     "session_id": checkout_session_id,
                     "invoice_number": invoice.invoice_number,
-                    "invoice_id": invoice.id,
+                    "invoice_id": str(invoice.id),
+                    "amount": str(plan.price),
+                    "currency": plan.currency or "USD",
+                    "plan_name": f"{plan.package.title} - {plan.duration.name if plan.duration else 'One-time'}",
                 },
             },
             status=status.HTTP_201_CREATED,
@@ -518,20 +573,27 @@ class PaymentViewSet(viewsets.ViewSet):
 
             subscription = Subscription.objects.filter(
                 user=request.user,
-                current_invoice=invoice
+                # Use current_invoice if it exists, otherwise filter by package_plan
             ).first()
+
+            # Try to get subscription from invoice
+            if not subscription and invoice.subscription:
+                subscription = invoice.subscription
 
             return Response({
                 "invoice_number": invoice.invoice_number,
                 "status": invoice.status,
                 "amount": invoice.amount,
                 "total": invoice.total,
+                "currency": invoice.currency,
                 "paid_at": invoice.paid_at,
                 "dodo_payment_id": invoice.dodo_payment_id,
+                "dodo_subscription_id": invoice.dodo_subscription_id,
                 "subscription": {
                     "active": subscription.is_active() if subscription else False,
-                    "end_date": subscription.end_date if subscription else None,
+                    "end_date": subscription.expires_at if subscription else None,
                     "status": subscription.status if subscription else None,
+                    "days_remaining": subscription.days_remaining() if subscription else 0,
                 } if subscription else None
             })
 
@@ -547,7 +609,11 @@ class PaymentViewSet(viewsets.ViewSet):
         """
         invoices = Invoice.objects.filter(
             user=request.user
-        ).select_related('package_plan', 'package_plan__package', 'package_plan__duration').order_by('-created_at')
+        ).select_related(
+            'package_plan',
+            'package_plan__package',
+            'package_plan__duration'
+        ).order_by('-created_at')
 
         return Response({
             "invoices": [
@@ -555,10 +621,12 @@ class PaymentViewSet(viewsets.ViewSet):
                     "invoice_number": inv.invoice_number,
                     "amount": inv.amount,
                     "total": inv.total,
+                    "currency": inv.currency,
                     "status": inv.status,
                     "created_at": inv.created_at,
                     "paid_at": inv.paid_at,
-                    "plan": f"{inv.package_plan.package.name} - {inv.package_plan.duration.name}" if inv.package_plan else None,
+                    "plan": f"{inv.package_plan.package.title} - {inv.package_plan.duration.name}" if inv.package_plan else None,
+                    "dodo_payment_id": inv.dodo_payment_id,
                 }
                 for inv in invoices
             ]
@@ -588,17 +656,21 @@ class PaymentViewSet(viewsets.ViewSet):
                 client = self._get_dodo_client()
                 if subscription.dodo_subscription_id:
                     client.subscriptions.cancel(subscription.dodo_subscription_id)
+                    logger.info(f"✅ Dodo subscription cancelled: {subscription.dodo_subscription_id}")
             except Exception as e:
-                logger.error(f"Failed to cancel Dodo subscription: {str(e)}")
+                logger.error(f"❌ Failed to cancel Dodo subscription: {str(e)}")
                 # Still cancel locally even if Dodo fails
 
             # Cancel locally
             subscription.cancel()
 
+            logger.info(f"✅ Subscription {subscription.id} cancelled for user {request.user.email}")
+
             return Response({
                 "message": "Subscription cancelled successfully",
                 "subscription_id": subscription.id,
-                "status": subscription.status
+                "status": subscription.status,
+                "expires_at": subscription.expires_at
             })
 
         except Subscription.DoesNotExist:

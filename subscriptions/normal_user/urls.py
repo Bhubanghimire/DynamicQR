@@ -1,7 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from subscriptions.normal_user.views import DurationViewSet, InvoiceViewSet, PackageViewSet, PaymentViewSet, UsageViewSet
-from subscriptions.webhooks import dodo_webhook
 
 app_name = "accounts_user"
 
@@ -17,6 +16,4 @@ user_qr_router.register(r'usage', UsageViewSet, basename='usage')
 
 urlpatterns = [
     path('', include(user_qr_router.urls)),
-    path('api/webhook/dodo/', dodo_webhook, name='dodo_webhook'),
-
 ]
