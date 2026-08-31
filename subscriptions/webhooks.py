@@ -8,7 +8,8 @@ from django.views.decorators.http import require_http_methods
 from django.conf import settings
 from django.utils import timezone
 from dodopayments import DodoPayments
-from rest_framework.decorators import api_view, schema
+from rest_framework.decorators import api_view, schema, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.schemas.openapi import AutoSchema
 
 from .models import Invoice, Subscription
@@ -67,9 +68,11 @@ class DodoWebhookSchema(AutoSchema):
         }
 
 
+@csrf_exempt
 @api_view(["POST"])
 @schema(DodoWebhookSchema())
-@csrf_exempt
+@authentication_classes([])
+@permission_classes([AllowAny])
 @require_http_methods(["POST"])
 def dodo_webhook(request):
     """
