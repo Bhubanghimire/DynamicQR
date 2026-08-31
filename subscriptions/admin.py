@@ -87,6 +87,7 @@ class DurationAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "days",
+        "discount"
     )
 
     search_fields = (
@@ -104,6 +105,7 @@ class DurationAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "name",
+                    "discount",
                     "days",
                 )
             },
