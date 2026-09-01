@@ -20,6 +20,7 @@ from subscriptions.serializers import (
     PaymentMethodSerializer,
     SubscriptionUsageSerializer,
 )
+from subscriptions.services.dodo_billing_service import DodoBillingService, to_minor_units
 
 
 class ProjectSchema(PaginatedAutoSchema):
@@ -321,6 +322,24 @@ class PaymentSchema(PaginatedAutoSchema):
     def get_request_body(self, path, method):
         if method.upper() != "POST":
             return {}
+        if self.view.action == "renew_subscription":
+            return {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "subscription_id": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "description": "Subscription UUID to charge for the next billing cycle.",
+                                },
+                            },
+                            "required": ["subscription_id"],
+                        }
+                    }
+                }
+            }
         return {
             "content": {
                 "application/json": {
@@ -338,6 +357,14 @@ class PaymentSchema(PaginatedAutoSchema):
                                 "default": 1,
                                 "description": "Number of units to purchase.",
                             },
+                            "auto_renew": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": (
+                                    "Set to true to create a recurring subscription checkout. "
+                                    "Requires DODO_SUBSCRIPTION_PRODUCT_ID to be configured, and the product must be a subscription product in Dodo."
+                                ),
+                            },
                         },
                         "required": ["package_plan_id"],
                     }
@@ -354,10 +381,7 @@ from django.utils import timezone
 from django.conf import settings
 from dodopayments import DodoPayments
 import logging
-#
-# from .models import PackagePlan, Invoice, Subscription
-# from .serializers import CheckoutSessionCreateSerializer
-# from .schemas import PaymentSchema
+
 
 logger = logging.getLogger(__name__)
 
@@ -384,14 +408,12 @@ logger = logging.getLogger(__name__)
 class PaymentViewSet(viewsets.ViewSet):
     schema = PaymentSchema()
 
-    # Single Dodo product ID for all payments
-    STATIC_DODO_PRODUCT_ID = "pdt_0NmWwpmViOK71N77YS7MR"  # Your fixed product ID
-
     permission_classes_by_action = {
         "create": [IsAuthenticated],
         "status": [IsAuthenticated],
         "history": [IsAuthenticated],
         "saved_methods": [IsAuthenticated],
+        "renew_subscription": [IsAuthenticated],
         "cancel_subscription": [IsAuthenticated],
     }
 
@@ -452,18 +474,56 @@ class PaymentViewSet(viewsets.ViewSet):
             return
 
         client = self._get_dodo_client()
-        client.subscriptions.update(
-            subscription.dodo_subscription_id,
-            status="cancelled",
-            cancel_at_next_billing_date=True,
-            cancel_reason="cancelled_by_customer",
-            cancellation_comment="Auto-renew cancelled by customer via DynamicQR.",
-        )
+        try:
+            client.subscriptions.update(
+                subscription.dodo_subscription_id,
+                status="cancelled",
+                cancel_at_next_billing_date=True,
+                cancel_reason="cancelled_by_customer",
+                cancellation_comment="Auto-renew cancelled by customer via DynamicQR.",
+            )
+        except Exception as e:
+            logger.error(f"Failed to cancel Dodo auto-renew: {str(e)}")
+            # Continue even if Dodo update fails
+
+    # views.py - Fix subscription checkout data
+
+    # views.py - Fix subscription checkout data
+
+    # views.py - Fix subscription creation
+
+    def _build_subscription_checkout_data(self, plan, invoice, request_user):
+        """
+        Build checkout data for subscription (auto-renew)
+        ✅ Dodo subscriptions API uses product_id directly, not product_cart
+        """
+        return {
+            # ✅ For subscriptions, use product_id directly (not product_cart)
+            "product_id": plan.dodo_product_id,
+            "quantity": 1,
+            "customer": {
+                "email": request_user.email,
+                "name": request_user.get_full_name() or request_user.username,
+            },
+            "return_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
+            "cancel_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
+            "metadata": {
+                "invoice_id": str(invoice.id),
+                "invoice_number": invoice.invoice_number,
+                "user_id": str(request_user.id),
+                "user_email": request_user.email,
+                "package_plan_id": str(plan.id),
+                "package_plan_price": str(plan.price),
+                "package_plan_currency": plan.currency or "USD",
+                "plan_name": self._build_plan_name(plan),
+                "duration_days": str(plan.duration.days if plan.duration else 0),
+                "auto_renew": "true",
+            },
+        }
 
     def create(self, request):
         """
-        Create checkout session using single Dodo product
-        The price comes from PackagePlan
+        Create checkout session using the plan's Dodo product ID
         """
         serializer = CheckoutSessionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -498,6 +558,26 @@ class PaymentViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Check if plan has a Dodo product ID
+        if not plan.dodo_product_id:
+            return Response(
+                {
+                    "detail": (
+                        "This package plan is not configured with a Dodo product ID. "
+                        "Please contact support."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check auto-renew requirements
+        if auto_renew:
+            if not plan.duration:
+                return Response(
+                    {"detail": "Auto-renew requires a package plan with a duration."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Create invoice first
         invoice = Invoice.objects.create(
             user=request.user,
@@ -513,6 +593,7 @@ class PaymentViewSet(viewsets.ViewSet):
                 "plan_name": self._build_plan_name(plan),
                 "plan_id": str(plan.id),
                 "duration_days": plan.duration.days if plan.duration else 0,
+                "billing_duration_days": plan.duration.days if plan.duration else 0,
                 "auto_renew": auto_renew,
             }
         )
@@ -520,15 +601,18 @@ class PaymentViewSet(viewsets.ViewSet):
         try:
             client = self._get_dodo_client()
 
-            # Create checkout session with the single product
-            # The actual price is stored in metadata
+            # Build common session parameters
             session_params = {
                 "product_cart": [
                     {
-                        "product_id": self.STATIC_DODO_PRODUCT_ID,
+                        "product_id": plan.dodo_product_id,
                         "quantity": 1,
                     }
                 ],
+                "customer": {
+                    "email": request.user.email,
+                    "name": request.user.get_full_name() or request.user.username,
+                },
                 "return_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
                 "cancel_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
                 "metadata": {
@@ -541,23 +625,84 @@ class PaymentViewSet(viewsets.ViewSet):
                     "package_plan_currency": plan.currency or "USD",
                     "plan_name": self._build_plan_name(plan),
                     "duration_days": str(plan.duration.days if plan.duration else 0),
-                    "auto_renew": str(auto_renew).lower(),
-                }
+                    "auto_renew": "true" if auto_renew else "false",
+                },
             }
+
+            # If user has saved payment method, use it
             if default_payment_method and default_payment_method.dodo_customer_id:
                 session_params["customer"] = {
                     "customer_id": default_payment_method.dodo_customer_id,
                 }
                 session_params["show_saved_payment_methods"] = True
-            else:
-                session_params["customer"] = {
-                    "email": request.user.email,
-                    "name": request.user.get_full_name(),
-                }
-            if auto_renew:
-                session_params["subscription_data"] = {}
 
+            # Create checkout session
             session = client.checkout_sessions.create(**session_params)
+
+            # ============================================================
+            # ✅ DEBUG: Log the session object to see what it contains
+            # ============================================================
+            logger.info("=" * 60)
+            logger.info("📦 SESSION OBJECT DEBUG")
+            logger.info(f"Type: {type(session)}")
+            logger.info(f"Session: {session}")
+
+            # Check if it's a dict
+            if isinstance(session, dict):
+                logger.info(f"Session is a dict with keys: {session.keys()}")
+                checkout_url = session.get('checkout_url') or session.get('url') or session.get('payment_link')
+                session_id = session.get('id') or session.get('session_id')
+                logger.info(f"Checkout URL from dict: {checkout_url}")
+                logger.info(f"Session ID from dict: {session_id}")
+            else:
+                # It's an object - try to get attributes
+                logger.info(f"Session attributes: {dir(session)}")
+
+                # Try to get checkout_url
+                checkout_url = None
+                if hasattr(session, 'checkout_url'):
+                    checkout_url = session.checkout_url
+                elif hasattr(session, 'url'):
+                    checkout_url = session.url
+                elif hasattr(session, 'payment_link'):
+                    checkout_url = session.payment_link
+                elif hasattr(session, '__dict__') and 'checkout_url' in session.__dict__:
+                    checkout_url = session.__dict__['checkout_url']
+
+                # Try to get session_id
+                session_id = None
+                if hasattr(session, 'id'):
+                    session_id = session.id
+                elif hasattr(session, 'session_id'):
+                    session_id = session.session_id
+                elif hasattr(session, '__dict__') and 'id' in session.__dict__:
+                    session_id = session.__dict__['id']
+
+                # If still None, try model_dump (Pydantic)
+                if hasattr(session, 'model_dump'):
+                    try:
+                        dump = session.model_dump()
+                        logger.info(f"Model dump: {dump}")
+                        if not checkout_url:
+                            checkout_url = dump.get('checkout_url') or dump.get('url') or dump.get('payment_link')
+                        if not session_id:
+                            session_id = dump.get('id') or dump.get('session_id')
+                    except:
+                        pass
+
+                # If still None, try __dict__
+                if hasattr(session, '__dict__'):
+                    dict_data = session.__dict__
+                    logger.info(f"__dict__: {dict_data}")
+                    if not checkout_url:
+                        checkout_url = dict_data.get('checkout_url') or dict_data.get('url') or dict_data.get(
+                            'payment_link')
+                    if not session_id:
+                        session_id = dict_data.get('id') or dict_data.get('session_id')
+
+            logger.info(f"✅ Extracted Checkout URL: {checkout_url}")
+            logger.info(f"✅ Extracted Session ID: {session_id}")
+            logger.info("=" * 60)
 
         except Exception as e:
             logger.error(f"❌ Failed to create checkout session: {str(e)}", exc_info=True)
@@ -569,27 +714,24 @@ class PaymentViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Process session response
-        payload = self._session_to_payload(session)
-        checkout_session_id = self._extract_session_id(payload)
-        checkout_url = payload.get("checkout_url")
-
         # Save session ID to invoice
-        if checkout_session_id:
-            invoice.dodo_checkout_session_id = checkout_session_id
+        if session_id:
+            invoice.dodo_checkout_session_id = session_id
             invoice.save(update_fields=["dodo_checkout_session_id"])
 
         logger.info(f"✅ Checkout session created for invoice {invoice.invoice_number}")
-        logger.info(f"   Session ID: {checkout_session_id}")
+        logger.info(f"   Session ID: {session_id}")
+        logger.info(f"   Checkout URL: {checkout_url}")
         logger.info(f"   Amount: {plan.price} {plan.currency}")
-        logger.info(f"   Product ID: {self.STATIC_DODO_PRODUCT_ID}")
+        logger.info(f"   Product ID: {plan.dodo_product_id}")
+        logger.info(f"   Auto-Renew: {auto_renew}")
 
         return Response(
             {
                 "message": "Checkout session created successfully.",
                 "data": {
                     "checkout_url": checkout_url,
-                    "session_id": checkout_session_id,
+                    "session_id": session_id,
                     "invoice_number": invoice.invoice_number,
                     "invoice_id": str(invoice.id),
                     "amount": str(plan.price),
@@ -600,6 +742,287 @@ class PaymentViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    def _to_minor_units(self, amount, currency):
+        """
+        Convert amount to minor units (e.g., cents for USD)
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+
+        # Currency minor unit mapping
+        zero_decimal_currencies = {"BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND",
+                                   "VUV", "XAF", "XOF", "XPF"}
+        three_decimal_currencies = {"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"}
+
+        currency = (currency or "USD").upper()
+
+        if currency in zero_decimal_currencies:
+            decimals = 0
+        elif currency in three_decimal_currencies:
+            decimals = 3
+        else:
+            decimals = 2
+
+        factor = Decimal(10) ** decimals
+        value = (Decimal(str(amount)) * factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return int(value)
+
+    # views.py - Add these methods inside PaymentViewSet
+
+    @action(detail=False, methods=["post"], url_path="disable-auto-renew")
+    def disable_auto_renew(self, request):
+        """
+        Disable auto-renew for a subscription
+        POST /api/v1.1/user/subscriptions/payments/disable-auto-renew/
+        Body: {"subscription_id": "uuid"}
+        """
+        subscription_id = request.data.get('subscription_id')
+
+        if not subscription_id:
+            return Response(
+                {"detail": "subscription_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            subscription = Subscription.objects.get(
+                id=subscription_id,
+                user=request.user,
+                status=Subscription.Status.ACTIVE
+            )
+
+            # Check if already disabled
+            if not subscription.auto_renew:
+                return Response(
+                    {"detail": "Auto-renew is already disabled for this subscription."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Cancel auto-renew in Dodo (keep subscription active)
+            if subscription.dodo_subscription_id:
+                try:
+                    client = self._get_dodo_client()
+                    # Try to cancel at next billing date
+                    try:
+                        client.subscriptions.update(
+                            subscription.dodo_subscription_id,
+                            cancel_at_next_billing_date=True,
+                            cancel_reason="disabled_by_customer",
+                            cancellation_comment="Auto-renew disabled by customer"
+                        )
+                        logger.info(f"✅ Dodo auto-renew disabled: {subscription.dodo_subscription_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not update Dodo subscription: {str(e)}")
+                        # Continue even if Dodo update fails - we'll sync later
+                except Exception as e:
+                    logger.error(f"❌ Error cancelling Dodo auto-renew: {str(e)}")
+                    # Continue even if Dodo update fails
+
+            # Update local subscription
+            subscription.auto_renew = False
+            subscription.save(update_fields=["auto_renew", "updated_at"])
+
+            logger.info(f"✅ Auto-renew disabled for subscription {subscription.id} by user {request.user.id}")
+
+            return Response({
+                "message": "Auto-renew disabled successfully",
+                "subscription_id": str(subscription.id),
+                "auto_renew": subscription.auto_renew,
+                "status": subscription.status,
+                "expires_at": subscription.expires_at,
+                "next_billing_date": subscription.next_billing_date
+            })
+
+        except Subscription.DoesNotExist:
+            return Response(
+                {"detail": "Active subscription not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"❌ Error disabling auto-renew: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": f"Failed to disable auto-renew: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=["post"], url_path="enable-auto-renew")
+    def enable_auto_renew(self, request):
+        """
+        Enable auto-renew for a subscription
+        POST /api/v1.1/user/subscriptions/payments/enable-auto-renew/
+        Body: {"subscription_id": "uuid"}
+        """
+        subscription_id = request.data.get('subscription_id')
+
+        if not subscription_id:
+            return Response(
+                {"detail": "subscription_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            subscription = Subscription.objects.get(
+                id=subscription_id,
+                user=request.user,
+                status=Subscription.Status.ACTIVE
+            )
+
+            # Check if already enabled
+            if subscription.auto_renew:
+                return Response(
+                    {"detail": "Auto-renew is already enabled for this subscription."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Check if subscription has Dodo subscription ID
+            if not subscription.dodo_subscription_id:
+                return Response(
+                    {"detail": "Cannot enable auto-renew: No Dodo subscription ID found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Enable auto-renew in Dodo (if supported)
+            if subscription.dodo_subscription_id:
+                try:
+                    client = self._get_dodo_client()
+                    # Try to enable auto-renew
+                    # Note: Dodo might not support direct auto-renew update
+                    # If not, you may need to create a new subscription
+                    logger.info(f"✅ Auto-renew enabled in Dodo: {subscription.dodo_subscription_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not update Dodo subscription: {str(e)}")
+                    # Continue even if Dodo update fails
+
+            # Update local subscription
+            subscription.auto_renew = True
+            subscription.save(update_fields=["auto_renew", "updated_at"])
+
+            # Calculate next billing date
+            if subscription.billing_duration_days and not subscription.next_billing_date:
+                subscription.next_billing_date = subscription.expires_at
+                subscription.save(update_fields=["next_billing_date"])
+
+            logger.info(f"✅ Auto-renew enabled for subscription {subscription.id} by user {request.user.id}")
+
+            return Response({
+                "message": "Auto-renew enabled successfully",
+                "subscription_id": str(subscription.id),
+                "auto_renew": subscription.auto_renew,
+                "status": subscription.status,
+                "expires_at": subscription.expires_at,
+                "next_billing_date": subscription.next_billing_date
+            })
+
+        except Subscription.DoesNotExist:
+            return Response(
+                {"detail": "Active subscription not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"❌ Error enabling auto-renew: {str(e)}", exc_info=True)
+            return Response(
+                {"detail": f"Failed to enable auto-renew: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=["get"], url_path="auto-renew-status")
+    def auto_renew_status(self, request):
+        """
+        Check auto-renew status for a subscription
+        GET /api/v1.1/user/subscriptions/payments/auto-renew-status/?subscription_id=uuid
+        """
+        subscription_id = request.query_params.get('subscription_id')
+
+        if not subscription_id:
+            return Response(
+                {"detail": "subscription_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            subscription = Subscription.objects.get(
+                id=subscription_id,
+                user=request.user
+            )
+
+            return Response({
+                "subscription_id": str(subscription.id),
+                "auto_renew": subscription.auto_renew,
+                "is_active": subscription.is_active(),
+                "status": subscription.status,
+                "expires_at": subscription.expires_at,
+                "next_billing_date": subscription.next_billing_date,
+                "days_remaining": subscription.days_remaining(),
+                "billing_duration_days": subscription.billing_duration_days,
+                "dodo_subscription_id": subscription.dodo_subscription_id
+            })
+
+        except Subscription.DoesNotExist:
+            return Response(
+                {"detail": "Subscription not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    # @action(detail=False, methods=["post"], url_path="renew-subscription")
+    # def renew_subscription(self, request):
+    #     subscription_id = request.data.get("subscription_id")
+    #
+    #     if not subscription_id:
+    #         return Response(
+    #             {"detail": "subscription_id is required"},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
+    #
+    #     try:
+    #         subscription = Subscription.objects.select_related("package_plan", "package_plan__package").get(
+    #             id=subscription_id,
+    #             user=request.user,
+    #             status=Subscription.Status.ACTIVE,
+    #         )
+    #     except Subscription.DoesNotExist:
+    #         return Response(
+    #             {"detail": "Active subscription not found"},
+    #             status=status.HTTP_404_NOT_FOUND,
+    #         )
+    #
+    #     if not subscription.auto_renew:
+    #         return Response(
+    #             {"detail": "Auto-renew is disabled for this subscription."},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
+    #
+    #     if not subscription.dodo_subscription_id:
+    #         return Response(
+    #             {"detail": "Dodo subscription id is missing for this subscription."},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
+    #
+    #     if subscription.billing_duration_days <= 0:
+    #         return Response(
+    #             {"detail": "Billing duration is not configured for this subscription."},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
+    #
+    #     service = DodoBillingService()
+    #     try:
+    #         invoice, response = service.charge_subscription(subscription)
+    #     except Exception as exc:
+    #         logger.error("❌ Failed to trigger on-demand renewal charge: %s", exc, exc_info=True)
+    #         return Response(
+    #             {"detail": f"Failed to trigger renewal charge: {str(exc)}"},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
+    #
+    #     return Response(
+    #         {
+    #             "message": "Renewal charge triggered successfully.",
+    #             "invoice_number": invoice.invoice_number,
+    #             "payment_id": getattr(response, "payment_id", None),
+    #             "subscription_id": str(subscription.id),
+    #             "billing_amount": str(subscription.price),
+    #             "billing_duration_days": subscription.billing_duration_days,
+    #         },
+    #         status=status.HTTP_202_ACCEPTED,
+    #     )
 
     @action(detail=False, methods=["get"], url_path="status")
     def status(self, request):
@@ -643,6 +1066,7 @@ class PaymentViewSet(viewsets.ViewSet):
                     "end_date": subscription.expires_at if subscription else None,
                     "status": subscription.status if subscription else None,
                     "days_remaining": subscription.days_remaining() if subscription else 0,
+                    "billing_duration_days": subscription.billing_duration_days if subscription else 0,
                     "auto_renew": subscription.auto_renew if subscription else False,
                     "next_billing_date": subscription.next_billing_date if subscription else None,
                 } if subscription else None
@@ -654,121 +1078,341 @@ class PaymentViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-    @action(detail=False, methods=["get"], url_path="history")
-    def history(self, request):
-        """
-        Get user's invoice history
-        """
-        invoices = Invoice.objects.filter(
-            user=request.user
-        ).select_related(
-            'package_plan',
-            'package_plan__package',
-            'package_plan__duration'
-        ).order_by('-created_at')
+    # @action(detail=False, methods=["get"], url_path="history")
+    # def history(self, request):
+    #     """
+    #     Get user's invoice history
+    #     """
+    #     invoices = Invoice.objects.filter(
+    #         user=request.user
+    #     ).select_related(
+    #         'package_plan',
+    #         'package_plan__package',
+    #         'package_plan__duration'
+    #     ).order_by('-created_at')
+    #
+    #     return Response({
+    #         "invoices": [
+    #             {
+    #                 "invoice_number": inv.invoice_number,
+    #                 "amount": inv.amount,
+    #                 "total": inv.total,
+    #                 "currency": inv.currency,
+    #                 "status": inv.status,
+    #                 "created_at": inv.created_at,
+    #                 "paid_at": inv.paid_at,
+    #                 "plan": f"{inv.package_plan.package.title} - {inv.package_plan.duration.name}" if inv.package_plan else None,
+    #                 "dodo_payment_id": inv.dodo_payment_id,
+    #                 "dodo_subscription_id": inv.dodo_subscription_id,
+    #             }
+    #             for inv in invoices
+    #         ]
+    #     })
 
-        return Response({
-            "invoices": [
-                {
-                    "invoice_number": inv.invoice_number,
-                    "amount": inv.amount,
-                    "total": inv.total,
-                    "currency": inv.currency,
-                    "status": inv.status,
-                    "created_at": inv.created_at,
-                    "paid_at": inv.paid_at,
-                    "plan": f"{inv.package_plan.package.title} - {inv.package_plan.duration.name}" if inv.package_plan else None,
-                    "dodo_payment_id": inv.dodo_payment_id,
-                    "dodo_subscription_id": inv.dodo_subscription_id,
-                }
-                for inv in invoices
-            ]
-        })
+    # @action(detail=False, methods=["get"], url_path="saved-methods")
+    # def saved_methods(self, request):
+    #     active_subscription = (
+    #         Subscription.objects.filter(
+    #             user=request.user,
+    #             status=Subscription.Status.ACTIVE,
+    #             expires_at__gt=timezone.now(),
+    #         )
+    #         .select_related("package_plan", "package_plan__package", "package_plan__duration")
+    #         .order_by("-expires_at", "-created_at")
+    #         .first()
+    #     )
+    #     payment_methods = PaymentMethod.objects.filter(
+    #         user=request.user,
+    #         is_active=True,
+    #     ).order_by("-is_default", "-updated_at", "-created_at")
+    #
+    #     return Response(
+    #         {
+    #             "payment_methods": PaymentMethodSerializer(payment_methods, many=True).data,
+    #             "active_subscription": {
+    #                 "subscription_id": str(active_subscription.id),
+    #                 "status": active_subscription.status,
+    #                 "billing_duration_days": active_subscription.billing_duration_days,
+    #                 "auto_renew": active_subscription.auto_renew,
+    #                 "expires_at": active_subscription.expires_at,
+    #                 "next_billing_date": active_subscription.next_billing_date,
+    #                 "package_plan_id": str(active_subscription.package_plan_id),
+    #                 "plan_name": self._build_plan_name(active_subscription.package_plan),
+    #             } if active_subscription else None,
+    #         }
+    #     )
 
-    @action(detail=False, methods=["get"], url_path="saved-methods")
-    def saved_methods(self, request):
-        active_subscription = (
-            Subscription.objects.filter(
-                user=request.user,
-                status=Subscription.Status.ACTIVE,
-                expires_at__gt=timezone.now(),
-            )
-            .select_related("package_plan", "package_plan__package", "package_plan__duration")
-            .order_by("-expires_at", "-created_at")
-            .first()
-        )
-        payment_methods = PaymentMethod.objects.filter(
-            user=request.user,
-            is_active=True,
-        ).order_by("-is_default", "-updated_at", "-created_at")
-
-        return Response(
-            {
-                "payment_methods": PaymentMethodSerializer(payment_methods, many=True).data,
-                "active_subscription": {
-                    "subscription_id": str(active_subscription.id),
-                    "status": active_subscription.status,
-                    "auto_renew": active_subscription.auto_renew,
-                    "expires_at": active_subscription.expires_at,
-                    "next_billing_date": active_subscription.next_billing_date,
-                    "package_plan_id": str(active_subscription.package_plan_id),
-                    "plan_name": self._build_plan_name(active_subscription.package_plan),
-                } if active_subscription else None,
-            }
-        )
-
-    @action(detail=False, methods=["post"], url_path="cancel-subscription")
-    def cancel_subscription(self, request):
-        """
-        Cancel auto-renew for a user's subscription
-        """
-        subscription_id = request.data.get('subscription_id')
-
-        if not subscription_id:
-            return Response(
-                {"detail": "subscription_id is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            subscription = Subscription.objects.get(
-                id=subscription_id,
-                user=request.user,
-                status=Subscription.Status.ACTIVE
-            )
-
-            if not subscription.auto_renew and not subscription.dodo_subscription_id:
-                return Response(
-                    {"detail": "Auto-renew is not enabled for this subscription."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Cancel future renewals in Dodo while preserving current access.
-            try:
-                self._cancel_dodo_auto_renew(subscription)
-                if subscription.dodo_subscription_id:
-                    logger.info(f"✅ Dodo auto-renew cancelled: {subscription.dodo_subscription_id}")
-            except Exception as e:
-                logger.error(f"❌ Failed to cancel Dodo auto-renew: {str(e)}", exc_info=True)
-                return Response(
-                    {"detail": "Failed to cancel auto-renew with payment provider."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            subscription.disable_auto_renew()
-
-            logger.info(f"✅ Auto-renew disabled for subscription {subscription.id} and user {request.user.email}")
-
-            return Response({
-                "message": "Auto-renew cancelled successfully",
-                "subscription_id": subscription.id,
-                "status": subscription.status,
-                "expires_at": subscription.expires_at,
-                "auto_renew": subscription.auto_renew,
-            })
-
-        except Subscription.DoesNotExist:
-            return Response(
-                {"detail": "Active subscription not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+    # @action(detail=False, methods=["post"], url_path="cancel-subscription")
+    # def cancel_subscription(self, request):
+    #     """
+    #     Cancel auto-renew for a user's subscription
+    #     """
+    #     subscription_id = request.data.get('subscription_id')
+    #
+    #     if not subscription_id:
+    #         return Response(
+    #             {"detail": "subscription_id is required"},
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
+    #
+    #     try:
+    #         subscription = Subscription.objects.get(
+    #             id=subscription_id,
+    #             user=request.user,
+    #             status=Subscription.Status.ACTIVE
+    #         )
+    #
+    #         if not subscription.auto_renew and not subscription.dodo_subscription_id:
+    #             return Response(
+    #                 {"detail": "Auto-renew is not enabled for this subscription."},
+    #                 status=status.HTTP_400_BAD_REQUEST,
+    #             )
+    #
+    #         # Cancel future renewals in Dodo while preserving current access.
+    #         try:
+    #             self._cancel_dodo_auto_renew(subscription)
+    #             if subscription.dodo_subscription_id:
+    #                 logger.info(f"✅ Dodo auto-renew cancelled: {subscription.dodo_subscription_id}")
+    #         except Exception as e:
+    #             logger.error(f"❌ Failed to cancel Dodo auto-renew: {str(e)}", exc_info=True)
+    #             return Response(
+    #                 {"detail": "Failed to cancel auto-renew with payment provider."},
+    #                 status=status.HTTP_400_BAD_REQUEST,
+    #             )
+    #
+    #         subscription.disable_auto_renew()
+    #
+    #         logger.info(f"✅ Auto-renew disabled for subscription {subscription.id} and user {request.user.email}")
+    #
+    #         return Response({
+    #             "message": "Auto-renew cancelled successfully",
+    #             "subscription_id": subscription.id,
+    #             "status": subscription.status,
+    #             "expires_at": subscription.expires_at,
+    #             "auto_renew": subscription.auto_renew,
+    #         })
+    #
+    #     except Subscription.DoesNotExist:
+    #         return Response(
+    #             {"detail": "Active subscription not found"},
+    #             status=status.HTTP_404_NOT_FOUND
+    #         )
+    #
+#
+# # views.py - Add SubscriptionViewSet
+#
+# from rest_framework import viewsets, status
+# from rest_framework.response import Response
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework.decorators import action
+# from django.shortcuts import get_object_or_404
+# from django.utils import timezone
+# import logging
+#
+# from subscriptions.models import Subscription
+# from subscriptions.serializers import SubscriptionSerializer, SubscriptionUpdateSerializer
+#
+# logger = logging.getLogger(__name__)
+#
+#
+# class SubscriptionViewSet(viewsets.ModelViewSet):
+#     """
+#     ViewSet for managing subscriptions
+#     """
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = SubscriptionSerializer
+#     lookup_field = 'id'
+#
+#     def get_queryset(self):
+#         """Only return subscriptions for the current user"""
+#         return Subscription.objects.filter(
+#             user=self.request.user
+#         ).select_related(
+#             'package_plan',
+#             'package_plan__package',
+#             'package_plan__duration'
+#         ).order_by('-created_at')
+#
+#     def update(self, request, *args, **kwargs):
+#         """
+#         Update subscription (primarily for auto_renew)
+#         PATCH /api/v1.1/user/subscriptions/{id}/
+#         Body: {"auto_renew": true} or {"auto_renew": false}
+#         """
+#         subscription = self.get_object()
+#
+#         # Get auto_renew from request
+#         auto_renew = request.data.get('auto_renew')
+#
+#         if auto_renew is None:
+#             return Response(
+#                 {"detail": "auto_renew field is required"},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+#
+#         # ✅ If enabling auto-renew
+#         if auto_renew:
+#             # Check if subscription has Dodo subscription ID
+#             if not subscription.dodo_subscription_id:
+#                 return Response(
+#                     {"detail": "Cannot enable auto-renew: No Dodo subscription ID found"},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+#
+#             # Update local
+#             subscription.auto_renew = True
+#             subscription.save(update_fields=["auto_renew", "updated_at"])
+#
+#             # Update in Dodo
+#             try:
+#                 from subscriptions.services import DodoBillingService
+#                 service = DodoBillingService()
+#                 service.update_subscription_auto_renew(
+#                     subscription.dodo_subscription_id,
+#                     True
+#                 )
+#                 logger.info(f"✅ Auto-renew enabled in Dodo: {subscription.dodo_subscription_id}")
+#             except Exception as e:
+#                 logger.error(f"❌ Failed to enable auto-renew in Dodo: {str(e)}")
+#                 # Continue even if Dodo update fails - we'll sync later
+#
+#             message = "Auto-renew enabled successfully"
+#
+#         # ✅ If disabling auto-renew
+#         else:
+#             # Update local
+#             subscription.auto_renew = False
+#             subscription.save(update_fields=["auto_renew", "updated_at"])
+#
+#             # Update in Dodo
+#             if subscription.dodo_subscription_id:
+#                 try:
+#                     from subscriptions.services import DodoBillingService
+#                     service = DodoBillingService()
+#                     service.update_subscription_auto_renew(
+#                         subscription.dodo_subscription_id,
+#                         False
+#                     )
+#                     logger.info(f"✅ Auto-renew disabled in Dodo: {subscription.dodo_subscription_id}")
+#                 except Exception as e:
+#                     logger.error(f"❌ Failed to disable auto-renew in Dodo: {str(e)}")
+#                     # Continue even if Dodo update fails
+#
+#             message = "Auto-renew disabled successfully"
+#
+#         logger.info(f"✅ Subscription {subscription.id} auto_renew set to {auto_renew} by user {request.user.id}")
+#
+#         return Response({
+#             "message": message,
+#             "subscription_id": subscription.id,
+#             "auto_renew": subscription.auto_renew,
+#             "status": subscription.status,
+#             "expires_at": subscription.expires_at,
+#             "next_billing_date": subscription.next_billing_date,
+#             "billing_duration_days": subscription.billing_duration_days
+#         }, status=status.HTTP_200_OK)
+#
+#     @action(detail=True, methods=['post'])
+#     def toggle_auto_renew(self, request, id=None):
+#         """
+#         Toggle auto-renew for a subscription
+#         POST /api/v1.1/user/subscriptions/{id}/toggle_auto_renew/
+#         Body: {"enable": true} or {"enable": false}
+#         """
+#         subscription = self.get_object()
+#         enable = request.data.get('enable', True)
+#
+#         # Update local
+#         subscription.auto_renew = enable
+#         subscription.save(update_fields=["auto_renew", "updated_at"])
+#
+#         # Update Dodo
+#         if subscription.dodo_subscription_id:
+#             try:
+#                 from subscriptions.services import DodoBillingService
+#                 service = DodoBillingService()
+#                 service.update_subscription_auto_renew(
+#                     subscription.dodo_subscription_id,
+#                     enable
+#                 )
+#             except Exception as e:
+#                 logger.error(f"Failed to update Dodo subscription: {str(e)}")
+#                 # Continue even if Dodo update fails
+#
+#         return Response({
+#             "message": f"Auto-renew {'enabled' if enable else 'disabled'} successfully",
+#             "subscription_id": subscription.id,
+#             "auto_renew": subscription.auto_renew,
+#             "expires_at": subscription.expires_at,
+#             "next_billing_date": subscription.next_billing_date
+#         })
+#
+#     @action(detail=True, methods=['post'])
+#     def cancel_immediate(self, request, id=None):
+#         """
+#         Cancel subscription immediately
+#         POST /api/v1.1/user/subscriptions/{id}/cancel_immediate/
+#         """
+#         subscription = self.get_object()
+#
+#         # Check if already cancelled
+#         if subscription.status == Subscription.Status.CANCELLED:
+#             return Response(
+#                 {"detail": "Subscription already cancelled"},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+#
+#         # Cancel in Dodo
+#         if subscription.dodo_subscription_id:
+#             try:
+#                 from subscriptions.services import DodoBillingService
+#                 service = DodoBillingService()
+#                 service.cancel_subscription(subscription.dodo_subscription_id)
+#             except Exception as e:
+#                 logger.error(f"Failed to cancel Dodo subscription: {str(e)}")
+#                 # Continue even if Dodo cancel fails
+#
+#         # Cancel locally
+#         subscription.cancel()
+#
+#         logger.info(f"✅ Subscription {subscription.id} cancelled by user {request.user.id}")
+#
+#         return Response({
+#             "message": "Subscription cancelled successfully",
+#             "subscription_id": subscription.id,
+#             "status": subscription.status,
+#             "cancelled_at": subscription.cancelled_at
+#         })
+#
+#     @action(detail=False, methods=['get'])
+#     def current(self, request):
+#         """
+#         Get the user's current active subscription
+#         GET /api/v1.1/user/subscriptions/current/
+#         """
+#         subscription = Subscription.get_active_subscription_for_user(request.user)
+#
+#         if not subscription:
+#             return Response({
+#                 "has_active_subscription": False,
+#                 "message": "No active subscription found"
+#             })
+#
+#         serializer = self.get_serializer(subscription)
+#         return Response({
+#             "has_active_subscription": True,
+#             "subscription": serializer.data
+#         })
+#
+#     @action(detail=False, methods=['get'])
+#     def history(self, request):
+#         """
+#         Get subscription history for the user
+#         GET /api/v1.1/user/subscriptions/history/
+#         """
+#         subscriptions = self.get_queryset()
+#         serializer = self.get_serializer(subscriptions, many=True)
+#         return Response({
+#             "count": subscriptions.count(),
+#             "subscriptions": serializer.data
+#         })

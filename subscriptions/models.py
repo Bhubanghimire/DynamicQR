@@ -88,6 +88,12 @@ class PackagePlan(SoftDeletable):
         blank=True,
         help_text="Additional features like: {'analytics': True, 'branding': True}"
     )
+    dodo_product_id = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+    )
 
     is_active = models.BooleanField(default=True)
 
@@ -245,6 +251,10 @@ class Subscription(SoftDeletable):
         decimal_places=2,
     )
 
+    billing_duration_days = models.PositiveIntegerField(
+        default=0,
+    )
+
     currency = models.CharField(
         max_length=3,
     )
@@ -331,13 +341,16 @@ class Subscription(SoftDeletable):
         duration_days = duration.days or 0
         now = timezone.now()
         auto_renew_enabled = cls._invoice_auto_renew_enabled(invoice)
+        subscription = getattr(invoice, "subscription", None)
 
-        # Check for existing active subscription
-        subscription = cls.objects.filter(
-            user=invoice.user,
-            package_plan=invoice.package_plan,
-            status=cls.Status.ACTIVE
-        ).first()
+        # Prefer the invoice-linked subscription when present, otherwise
+        # fall back to the user's active subscription for this plan.
+        if not subscription:
+            subscription = cls.objects.filter(
+                user=invoice.user,
+                package_plan=invoice.package_plan,
+                status=cls.Status.ACTIVE
+            ).first()
 
         if not subscription:
             # Create new subscription
@@ -355,35 +368,50 @@ class Subscription(SoftDeletable):
                 scan_limit_remaining=invoice.package_plan.max_scans,
                 team_member_limit=invoice.package_plan.max_team_members,
                 features=invoice.package_plan.features or {},
+                billing_duration_days=duration_days,
                 started_at=start_date,
                 expires_at=end_date,
                 status=cls.Status.ACTIVE,
                 auto_renew=auto_renew_enabled,
                 dodo_subscription_id=invoice.dodo_subscription_id or None,
+                next_billing_date=end_date if auto_renew_enabled else None,
             )
         else:
+            billing_duration_days = subscription.billing_duration_days or duration_days
+            billing_delta = timezone.timedelta(days=billing_duration_days)
+
             # Extend existing subscription
             if subscription.expires_at < now:
                 # Subscription expired, restart from now
                 subscription.started_at = now
-                subscription.expires_at = now + timezone.timedelta(days=duration_days)
+                subscription.expires_at = now + billing_delta
             else:
                 # Extend from current end date
-                subscription.expires_at += timezone.timedelta(days=duration_days)
+                subscription.expires_at += billing_delta
 
             subscription.status = cls.Status.ACTIVE
-            subscription.price = invoice.total
-            subscription.currency = invoice.currency
-            subscription.payment_method = invoice.payment_method
-            subscription.qr_limit = invoice.package_plan.max_qrs
-            subscription.scan_limit = invoice.package_plan.max_scans
-            subscription.scan_limit_remaining = invoice.package_plan.max_scans
-            subscription.team_member_limit = invoice.package_plan.max_team_members
-            subscription.features = invoice.package_plan.features or {}
-            subscription.auto_renew = auto_renew_enabled
+            subscription.billing_duration_days = billing_duration_days
+            subscription.auto_renew = subscription.auto_renew or auto_renew_enabled
+            subscription.last_renewal_date = now
+            subscription.next_billing_date = subscription.expires_at
             if invoice.dodo_subscription_id:
                 subscription.dodo_subscription_id = invoice.dodo_subscription_id
-            subscription.save()
+            if not subscription.payment_method and invoice.payment_method:
+                subscription.payment_method = invoice.payment_method
+            subscription.save(
+                update_fields=[
+                    "billing_duration_days",
+                    "started_at",
+                    "expires_at",
+                    "status",
+                    "auto_renew",
+                    "last_renewal_date",
+                    "next_billing_date",
+                    "dodo_subscription_id",
+                    "payment_method",
+                    "updated_at",
+                ]
+            )
 
         return subscription
 
