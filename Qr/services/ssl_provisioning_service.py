@@ -104,3 +104,55 @@ class SSLProvisioningService:
                 'success': False,
                 'error': str(e)
             }
+
+    def delete_certificate(self):
+        """Delete SSL certificate using Certbot."""
+        if not self.certbot_path:
+            return {
+                'success': False,
+                'error': 'Certbot not found. Please install certbot.'
+            }
+
+        cert_path = f"/etc/letsencrypt/live/{self.domain}/fullchain.pem"
+        if not os.path.exists(cert_path):
+            logger.info(f"Certificate does not exist for {self.domain}")
+            return {
+                'success': True,
+                'message': 'Certificate does not exist'
+            }
+
+        try:
+            cmd = [
+                self.certbot_path, 'delete',
+                '--cert-name', self.domain,
+                '--non-interactive',
+            ]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if result.returncode == 0:
+                logger.info(f"Certificate deleted for {self.domain}")
+                return {
+                    'success': True,
+                    'output': result.stdout
+                }
+            logger.error(f"Certbot delete failed: {result.stderr}")
+            return {
+                'success': False,
+                'error': result.stderr or 'Certbot delete failed',
+                'stdout': result.stdout
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                'success': False,
+                'error': 'SSL deletion timed out'
+            }
+        except Exception as e:
+            logger.error(f"SSL deletion error: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }

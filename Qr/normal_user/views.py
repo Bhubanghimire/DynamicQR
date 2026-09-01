@@ -1942,8 +1942,20 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
                 'message': result.get('error', 'SSL provisioning failed')
             }, status=status.HTTP_400_BAD_REQUEST)
 
-def perform_destroy(self, instance):
+    def perform_destroy(self, instance):
         """Soft delete domain"""
+        verification_service = DomainVerificationService()
+        deactivation_result = verification_service.deactivate_domain(instance)
+        ssl_service = SSLProvisioningService(instance.domain)
+        ssl_result = ssl_service.delete_certificate()
+
         instance.is_deleted = True
         instance.status = CustomDomain.Status.DISABLED
+        instance.nginx_enabled = False
+        instance.ssl_verified = False
+        instance.automation_error = None
+        if not deactivation_result.get('success'):
+            instance.automation_error = deactivation_result.get('error', 'Nginx cleanup failed')
+        if not ssl_result.get('success'):
+            instance.automation_error = ssl_result.get('error', 'SSL cleanup failed')
         instance.save()
