@@ -309,6 +309,19 @@ class Subscription(SoftDeletable):
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
+    def _invoice_auto_renew_enabled(cls, invoice):
+        metadata = getattr(invoice, "metadata", {}) or {}
+        raw_value = metadata.get("auto_renew")
+
+        if isinstance(raw_value, bool):
+            return raw_value
+
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+        return bool(getattr(invoice, "dodo_subscription_id", None))
+
+    @classmethod
     def get_or_create_subscription(cls, invoice):
         """
         Get or create subscription from invoice
@@ -317,6 +330,7 @@ class Subscription(SoftDeletable):
         duration = invoice.package_plan.duration
         duration_days = duration.days or 0
         now = timezone.now()
+        auto_renew_enabled = cls._invoice_auto_renew_enabled(invoice)
 
         # Check for existing active subscription
         subscription = cls.objects.filter(
@@ -344,8 +358,8 @@ class Subscription(SoftDeletable):
                 started_at=start_date,
                 expires_at=end_date,
                 status=cls.Status.ACTIVE,
-                auto_renew=True,
-                dodo_subscription_id=invoice.dodo_subscription_id or "",
+                auto_renew=auto_renew_enabled,
+                dodo_subscription_id=invoice.dodo_subscription_id or None,
             )
         else:
             # Extend existing subscription
@@ -366,6 +380,7 @@ class Subscription(SoftDeletable):
             subscription.scan_limit_remaining = invoice.package_plan.max_scans
             subscription.team_member_limit = invoice.package_plan.max_team_members
             subscription.features = invoice.package_plan.features or {}
+            subscription.auto_renew = auto_renew_enabled
             if invoice.dodo_subscription_id:
                 subscription.dodo_subscription_id = invoice.dodo_subscription_id
             subscription.save()
@@ -462,6 +477,12 @@ class Subscription(SoftDeletable):
         self.cancelled_at = timezone.now()
         self.auto_renew = False
         self.save()
+        return self
+
+    def disable_auto_renew(self):
+        """Stop future renewals while preserving current paid access."""
+        self.auto_renew = False
+        self.save(update_fields=["auto_renew", "updated_at"])
         return self
 
 

@@ -12,9 +12,145 @@ from rest_framework.decorators import api_view, schema, authentication_classes, 
 from rest_framework.permissions import AllowAny
 from rest_framework.schemas.openapi import AutoSchema
 
-from .models import Invoice, Subscription
+from .models import Invoice, PaymentMethod, Subscription
 
 logger = logging.getLogger(__name__)
+
+
+def _get_dodo_client():
+    return DodoPayments(
+        bearer_token=settings.DODO_PAYMENTS_API_KEY,
+        environment="test_mode" if settings.DEBUG else "live_mode",
+    )
+
+
+def _select_saved_payment_method(payment_methods, event_data):
+    payment_method_id = event_data.get("payment_method_id")
+    if payment_method_id:
+        for item in payment_methods:
+            if getattr(item, "payment_method_id", None) == payment_method_id:
+                return item
+
+    card_last_four = event_data.get("card_last_four")
+    card_network = (event_data.get("card_network") or "").strip().lower()
+
+    if card_last_four:
+        for item in payment_methods:
+            card = getattr(item, "card", None)
+            method_last_four = getattr(card, "last4_digits", None)
+            method_network = (getattr(card, "card_network", "") or "").strip().lower()
+            if method_last_four == card_last_four and (
+                not card_network or not method_network or method_network == card_network
+            ):
+                return item
+
+    recurring_methods = [
+        item for item in payment_methods if getattr(item, "recurring_enabled", False)
+    ]
+    if len(recurring_methods) == 1:
+        return recurring_methods[0]
+    if recurring_methods:
+        recurring_methods.sort(
+            key=lambda item: (
+                getattr(item, "last_used_at", None).timestamp()
+                if getattr(item, "last_used_at", None)
+                else 0
+            ),
+            reverse=True,
+        )
+        return recurring_methods[0]
+
+    if len(payment_methods) == 1:
+        return payment_methods[0]
+
+    if payment_methods:
+        payment_methods.sort(
+            key=lambda item: (
+                getattr(item, "last_used_at", None).timestamp()
+                if getattr(item, "last_used_at", None)
+                else 0
+            ),
+            reverse=True,
+        )
+        return payment_methods[0]
+
+    return None
+
+
+def _sync_payment_method(invoice, event_data):
+    customer = event_data.get("customer", {}) or {}
+    customer_id = customer.get("customer_id")
+    if not customer_id:
+        return None
+
+    try:
+        response = _get_dodo_client().customers.retrieve_payment_methods(customer_id)
+    except Exception as exc:
+        logger.warning("Could not retrieve saved payment methods from Dodo: %s", exc)
+        return None
+
+    items = list(getattr(response, "items", []) or [])
+    payment_method_data = _select_saved_payment_method(items, event_data)
+    payment_method_id = getattr(payment_method_data, "payment_method_id", None) or event_data.get("payment_method_id")
+    if not payment_method_id:
+        return None
+
+    card = getattr(payment_method_data, "card", None) if payment_method_data else None
+    payment_method, _created = PaymentMethod.objects.update_or_create(
+        dodo_payment_method_id=payment_method_id,
+        defaults={
+            "user": invoice.user,
+            "payment_type": PaymentMethod.PaymentType.CARD,
+            "dodo_customer_id": customer_id,
+            "card_last_four": getattr(card, "last4_digits", None) or event_data.get("card_last_four") or "",
+            "card_brand": getattr(card, "card_network", None) or event_data.get("card_network") or "",
+            "card_expiry_month": getattr(card, "expiry_month", None) or "",
+            "card_expiry_year": getattr(card, "expiry_year", None) or "",
+            "is_default": True,
+            "is_active": True,
+            "billing_address": event_data.get("billing") or {},
+        },
+    )
+
+    PaymentMethod.objects.filter(
+        user=invoice.user,
+        is_default=True,
+    ).exclude(pk=payment_method.pk).update(is_default=False)
+
+    return payment_method
+
+
+def _ensure_paid_invoice_for_subscription_renewal(subscription, payment_id=None, invoice_number=None, metadata=None):
+    metadata = metadata or {}
+
+    if invoice_number:
+        invoice = Invoice.objects.filter(invoice_number=invoice_number).first()
+        if invoice:
+            return invoice
+
+    invoice = Invoice.objects.create(
+        user=subscription.user,
+        subscription=subscription,
+        package_plan=subscription.package_plan,
+        payment_method=subscription.payment_method,
+        amount=subscription.price,
+        tax=0,
+        total=subscription.price,
+        currency=subscription.currency,
+        due_date=timezone.now(),
+        status=Invoice.Status.PENDING,
+        metadata={
+            **metadata,
+            "source": "subscription_renewal",
+            "auto_renew": True,
+        },
+    )
+    if payment_id:
+        invoice.dodo_payment_id = payment_id
+    if subscription.dodo_subscription_id:
+        invoice.dodo_subscription_id = subscription.dodo_subscription_id
+    invoice.save()
+    return invoice
 
 
 class DodoWebhookSchema(AutoSchema):
@@ -146,21 +282,30 @@ def handle_payment_succeeded(event_data):
         logger.info(f"   Metadata: {metadata}")
 
         # Validate invoice number
-        if not invoice_number:
-            logger.error("❌ Missing invoice_number in metadata")
+        if not invoice_number and not subscription_id:
+            logger.error("❌ Missing invoice_number and subscription_id in metadata")
             return JsonResponse({"status": "error", "message": "No invoice number"}, status=400)
 
         # Find invoice
         try:
-            invoice = Invoice.objects.get(invoice_number=invoice_number)
+            if invoice_number:
+                invoice = Invoice.objects.get(invoice_number=invoice_number)
+            else:
+                subscription = Subscription.objects.get(dodo_subscription_id=subscription_id)
+                invoice = _ensure_paid_invoice_for_subscription_renewal(
+                    subscription,
+                    payment_id=payment_id,
+                    invoice_number=None,
+                    metadata=metadata,
+                )
             logger.info(f"✅ Found Invoice: {invoice.id}")
             logger.info(f"   Current Status: {invoice.status}")
             logger.info(f"   User: {invoice.user.email}")
             logger.info(f"   Amount: {invoice.total} {invoice.currency}")
             logger.info(f"   Package Plan: {invoice.package_plan}")
 
-        except Invoice.DoesNotExist:
-            logger.error(f"❌ Invoice not found: {invoice_number}")
+        except (Invoice.DoesNotExist, Subscription.DoesNotExist):
+            logger.error(f"❌ Invoice or subscription not found: invoice={invoice_number} subscription={subscription_id}")
             return JsonResponse({"status": "error", "message": "Invoice not found"}, status=404)
 
         # Check if already processed
@@ -179,6 +324,11 @@ def handle_payment_succeeded(event_data):
         if subscription_id:
             invoice.dodo_subscription_id = subscription_id
             logger.info(f"   Set Subscription ID: {subscription_id}")
+
+        payment_method = _sync_payment_method(invoice, event_data)
+        if payment_method:
+            invoice.payment_method = payment_method
+            logger.info(f"   Synced Payment Method: {payment_method.dodo_payment_method_id}")
 
         invoice.save()
         logger.info(f"✅ Invoice {invoice_number} marked as PAID")
@@ -278,32 +428,35 @@ def handle_subscription_renewed(event_data):
         metadata = event_data.get('metadata', {})
         invoice_number = metadata.get('invoice_number')
 
-        if not invoice_number:
-            logger.error("❌ Missing invoice_number in metadata")
-            return JsonResponse({"status": "error", "message": "No invoice number"}, status=400)
+        if not subscription_id:
+            logger.error("❌ Missing subscription_id")
+            return JsonResponse({"status": "error", "message": "No subscription ID"}, status=400)
 
         try:
             subscription = Subscription.objects.get(dodo_subscription_id=subscription_id)
-            invoice = Invoice.objects.get(invoice_number=invoice_number)
+            invoice = _ensure_paid_invoice_for_subscription_renewal(
+                subscription,
+                payment_id=payment_id,
+                invoice_number=invoice_number,
+                metadata=metadata,
+            )
 
             # Update invoice
             invoice.status = Invoice.Status.PAID
             invoice.paid_at = timezone.now()
             invoice.dodo_payment_id = payment_id
+            if subscription_id:
+                invoice.dodo_subscription_id = subscription_id
             invoice.save()
             logger.info(f"✅ Invoice {invoice_number} updated for renewal")
 
-            # Update subscription
-            if subscription.package_plan and subscription.package_plan.duration:
-                duration_days = subscription.package_plan.duration.days or 30
-                subscription.expires_at = timezone.now() + timezone.timedelta(days=duration_days)
-                subscription.status = Subscription.Status.ACTIVE
-                subscription.current_invoice = invoice
-                subscription.last_renewal_date = timezone.now()
-                subscription.next_billing_date = subscription.expires_at
-                subscription.save()
-                logger.info(f"✅ Subscription renewed: {subscription.id}")
-                logger.info(f"   New expiry: {subscription.expires_at}")
+            subscription.last_renewal_date = timezone.now()
+            subscription.next_billing_date = subscription.expires_at
+            subscription.auto_renew = True
+            subscription.status = Subscription.Status.ACTIVE
+            subscription.save(update_fields=["last_renewal_date", "next_billing_date", "auto_renew", "status", "updated_at"])
+            logger.info(f"✅ Subscription renewal synced: {subscription.id}")
+            logger.info(f"   Current expiry: {subscription.expires_at}")
 
         except (Subscription.DoesNotExist, Invoice.DoesNotExist) as e:
             logger.error(f"❌ Error processing renewal: {str(e)}")

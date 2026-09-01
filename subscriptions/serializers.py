@@ -18,6 +18,7 @@ class CheckoutSessionCreateSerializer(serializers.Serializer):
     product_id = serializers.CharField(required=False, allow_blank=False)
     package_plan_id = serializers.CharField(required=False, allow_blank=False)
     quantity = serializers.IntegerField(min_value=1, default=1)
+    auto_renew = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         product_id = attrs.get("product_id")
@@ -80,7 +81,10 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
             "payment_type",
             "card_brand",
             "card_last_four",
+            "card_expiry_month",
+            "card_expiry_year",
             "is_default",
+            "is_active",
         )
 
 
