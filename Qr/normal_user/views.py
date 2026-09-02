@@ -638,6 +638,51 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=False, methods=["post"], url_path="plans/scan")
+    def scan_plan(self, request, *args, **kwargs):
+        qr_id = request.data.get("qr_id") or request.query_params.get("qr_id")
+        if not qr_id:
+            return Response(
+                {"data": {}, "message": "qr_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            qr_code = self._get_qr_by_identifier(qr_id)
+        except QRCode.DoesNotExist:
+            raise NotFound()
+
+        qr_schedule = QRSchedule.objects.filter(qr_code=qr_code, is_deleted=False).first()
+        if qr_schedule and (qr_schedule.start_date or qr_schedule.end_date):
+            now = timezone.now()
+            if qr_schedule.start_date and now < qr_schedule.start_date:
+                return Response(
+                    {"data": {}, "message": "QR code is not active yet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if qr_schedule.end_date and now > qr_schedule.end_date:
+                return Response(
+                    {"data": {}, "message": "QR code has expired."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        is_enabled, password_saved = qr_code.is_password_enabled()
+        if is_enabled:
+            password_ui = request.data.get("password")
+            if not password_ui:
+                return Response(
+                    {"data": {"password_enabled": True}, "message": "Password enabled."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if password_ui != password_saved:
+                return Response({"data": False, "message": "Wrong password."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(qr_code)
+        return Response(
+            {"data": serializer.data, "message": "QR Scan fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
     @action(detail=True, methods=["post"], url_path="analytics")
     def analytics(self, request, *args, **kwargs):
         try:
