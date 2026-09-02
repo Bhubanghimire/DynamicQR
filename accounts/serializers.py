@@ -1,6 +1,6 @@
 
 from rest_framework import serializers
-from accounts.models import ContactUs, FAQ, OTP, User
+from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User
 from system.models import ConfigChoice
 
 
@@ -148,3 +148,14 @@ class FAQListSerializer(serializers.ModelSerializer):
     class Meta:
         model = FAQ
         fields = ['id', 'question', 'answer']
+
+
+class NotificationPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationPreference
+        fields = [
+            'scan_alert',
+            'weekly_performance',
+            'product_updates',
+            'security_alerts',
+        ]

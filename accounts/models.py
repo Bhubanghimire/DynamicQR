@@ -146,3 +146,23 @@ class FAQ(models.Model):
 
     def __str__(self):
         return self.question
+
+
+class NotificationPreference(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notification_preference',
+    )
+    scan_alert = models.BooleanField(default=True)
+    weekly_performance = models.BooleanField(default=True)
+    product_updates = models.BooleanField(default=True)
+    security_alerts = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['user_id']
+
+    def __str__(self):
+        return f'Notification preferences for {self.user.email}'

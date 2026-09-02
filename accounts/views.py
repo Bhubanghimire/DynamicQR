@@ -24,11 +24,12 @@ from rest_framework import status
 from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
 from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
-from accounts.models import FAQ, OTP, User, GoogleOAuthExchangeCode
+from accounts.models import FAQ, NotificationPreference, OTP, User, GoogleOAuthExchangeCode
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
-    ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer
+    ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer, \
+    NotificationPreferenceSerializer
 from subscriptions.models import Subscription
 
 from django.core import signing
@@ -326,6 +327,8 @@ class ProfileViewset(viewsets.GenericViewSet):
             return ProfileUpdateSerializer
         if self.action == "update_profile_image":
             return ProfileImageUpdateSerializer
+        if self.action in {"notification_preferences", "update_notification_preferences"}:
+            return NotificationPreferenceSerializer
         return ProfileDetailSerializer
 
     @action(detail=False, methods=["GET"], url_path="detail")
@@ -359,6 +362,30 @@ class ProfileViewset(viewsets.GenericViewSet):
         response_serializer = ProfileDetailSerializer(serializer.instance, context={"request": request})
         return Response(
             {"data": response_serializer.data, "message": "Profile image updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["GET"], url_path="notification-preferences")
+    def notification_preferences(self, request):
+        preference, _ = NotificationPreference.objects.get_or_create(
+            user=request.user
+        )
+        serializer = self.get_serializer(preference)
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["PATCH"], url_path="notification-preferences")
+    def update_notification_preferences(self, request):
+        preference, _ = NotificationPreference.objects.get_or_create(
+            user=request.user
+        )
+        serializer = self.get_serializer(preference, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {
+                "data": serializer.data,
+                "message": "Notification preferences updated successfully.",
+            },
             status=status.HTTP_200_OK,
         )
 

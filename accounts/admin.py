@@ -2,7 +2,7 @@ from django import forms
 from django.db import models
 from django.contrib import admin
 
-from accounts.models import ContactUs, FAQ, OTP, User
+from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User
 
 
 @admin.register(User)
@@ -39,3 +39,24 @@ class FAQAdmin(admin.ModelAdmin):
             "widget": forms.Textarea(attrs={"rows": 12, "cols": 100})
         },
     }
+
+
+@admin.register(NotificationPreference)
+class NotificationPreferenceAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "scan_alert",
+        "weekly_performance",
+        "product_updates",
+        "security_alerts",
+        "updated_at",
+    )
+    search_fields = ("user__email", "user__full_name")
+    list_filter = (
+        "scan_alert",
+        "weekly_performance",
+        "product_updates",
+        "security_alerts",
+    )
+    ordering = ("user__email",)
