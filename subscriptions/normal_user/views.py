@@ -657,6 +657,7 @@ class PaymentViewSet(viewsets.ViewSet):
             currency=plan.currency or "USD",
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
+            billing_address={},
             metadata={
                 "user_email": request.user.email,
                 "plan_name": self._build_plan_name(plan),
@@ -704,6 +705,9 @@ class PaymentViewSet(viewsets.ViewSet):
                     "customer_id": default_payment_method.dodo_customer_id,
                 }
                 session_params["show_saved_payment_methods"] = True
+                if default_payment_method.billing_address:
+                    invoice.billing_address = default_payment_method.billing_address
+                    invoice.save(update_fields=["billing_address", "updated_at"])
 
             # Create checkout session
             session = client.checkout_sessions.create(**session_params)

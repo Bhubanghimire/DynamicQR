@@ -148,6 +148,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "paid_at",
             "invoice_items",
             "notes",
+            "billing_address",
             "package_plan",
             "payment_method",
             "subscription",

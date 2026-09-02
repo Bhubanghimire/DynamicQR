@@ -601,6 +601,7 @@ class Invoice(SoftDeletable):
     # Additional data
     invoice_items = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True)
+    billing_address = models.JSONField(default=dict, blank=True)
     metadata = models.JSONField(default=dict, blank=True)  # ADD THIS FIELD
 
 

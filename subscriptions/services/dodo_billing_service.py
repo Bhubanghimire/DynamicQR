@@ -68,6 +68,7 @@ class DodoBillingService:
                 currency=subscription.currency,
                 due_date=timezone.now(),
                 status=Invoice.Status.PENDING,
+                billing_address=getattr(subscription.payment_method, "billing_address", {}) or {},
                 metadata={
                     "source": "subscription_renewal",
                     "auto_renew": True,

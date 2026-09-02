@@ -438,6 +438,7 @@ class InvoiceAdmin(admin.ModelAdmin):
         "issued_at",
         "created_at",
         "updated_at",
+        "billing_address",
     )
 
     fieldsets = (
@@ -481,6 +482,7 @@ class InvoiceAdmin(admin.ModelAdmin):
                 "fields": (
                     "invoice_items",
                     "notes",
+                    "billing_address",
                 )
             },
         ),

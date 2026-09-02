@@ -303,6 +303,15 @@ def _sync_payment_method(invoice, event_data):
     return payment_method
 
 
+def _extract_billing_address(event_data, payment_method=None):
+    billing = (event_data or {}).get("billing") or {}
+    if billing:
+        return billing
+    if payment_method and getattr(payment_method, "billing_address", None):
+        return payment_method.billing_address
+    return {}
+
+
 def _ensure_paid_invoice_for_subscription_renewal(subscription, payment_id=None, invoice_number=None, metadata=None):
     metadata = metadata or {}
 
@@ -322,6 +331,7 @@ def _ensure_paid_invoice_for_subscription_renewal(subscription, payment_id=None,
         currency=subscription.currency,
         due_date=timezone.now(),
         status=Invoice.Status.PENDING,
+        billing_address=getattr(subscription.payment_method, "billing_address", {}) or {},
         metadata={
             **metadata,
             "source": "subscription_renewal",
@@ -554,6 +564,7 @@ def handle_payment_succeeded(event_data):
         if payment_method:
             invoice.payment_method = payment_method
             logger.info(f"   Synced Payment Method: {payment_method.dodo_payment_method_id}")
+        invoice.billing_address = _extract_billing_address(event_data, payment_method)
 
         invoice.save()
         logger.info(f"✅ Invoice {invoice_number} marked as PAID")
