@@ -81,11 +81,11 @@ class PackagePlan(SoftDeletable):
         default=0,
         help_text="Maximum team members. 0 = no team members allowed"
     )
-    bulk_upload = models.PositiveIntegerField(
+    max_bulk_upload = models.PositiveIntegerField(
         default=0,
         help_text="Maximum Bulk upload. 0 = no team members allowed"
     )
-    domain_add = models.PositiveIntegerField(
+    max_domain_add = models.PositiveIntegerField(
         default=0,
         help_text="Maximum domain add. 0 = no team members allowed"
     )
@@ -284,6 +284,12 @@ class Subscription(SoftDeletable):
     team_member_limit = models.PositiveIntegerField(
         default=0,
     )
+    bulk_upload_limit = models.PositiveIntegerField(
+        default=0,
+    )
+    domain_add_limit = models.PositiveIntegerField(
+        default=0,
+    )
 
     features = models.JSONField(
         default=dict,
@@ -375,6 +381,8 @@ class Subscription(SoftDeletable):
                 scan_limit=invoice.package_plan.max_scans,
                 scan_limit_remaining=invoice.package_plan.max_scans,
                 team_member_limit=invoice.package_plan.max_team_members,
+                bulk_upload_limit=invoice.package_plan.max_bulk_upload,
+                domain_add_limit=invoice.package_plan.max_domain_add,
                 features=invoice.package_plan.features or {},
                 billing_duration_days=duration_days,
                 started_at=start_date,
@@ -469,6 +477,8 @@ class Subscription(SoftDeletable):
             subscription.scan_limit = free_plan.max_scans
             subscription.scan_limit_remaining = free_plan.max_scans
             subscription.team_member_limit = free_plan.max_team_members
+            subscription.bulk_upload_limit = free_plan.max_bulk_upload
+            subscription.domain_add_limit = free_plan.max_domain_add
             subscription.features = free_plan.features or {}
             subscription.auto_renew = False
             subscription.save()
@@ -484,6 +494,8 @@ class Subscription(SoftDeletable):
             scan_limit=free_plan.max_scans,
             scan_limit_remaining=free_plan.max_scans,
             team_member_limit=free_plan.max_team_members,
+            bulk_upload_limit=free_plan.max_bulk_upload,
+            domain_add_limit=free_plan.max_domain_add,
             features=free_plan.features or {},
             started_at=now,
             expires_at=expires_at,
