@@ -1,6 +1,6 @@
 
 from rest_framework import serializers
-from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, UserSession
+from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, UserSession, Workspace
 from system.models import ConfigChoice
 
 
@@ -159,6 +159,19 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             'product_updates',
             'security_alerts',
         ]
+
+
+class WorkspaceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Workspace
+        fields = [
+            "id",
+            "name",
+            "default_json",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class UserSessionSerializer(serializers.ModelSerializer):

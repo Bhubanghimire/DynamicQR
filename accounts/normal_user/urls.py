@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from accounts.views import AuthViewSet, ProfileViewset, GoogleLoginRedirectAPIView, GoogleLoginCompleteAPIView, GoogleOAuthExchangeAPIView, ContactUsSubmitAPIView, FAQListAPIView
+from accounts.views import AuthViewSet, ProfileViewset, GoogleLoginRedirectAPIView, GoogleLoginCompleteAPIView, GoogleOAuthExchangeAPIView, ContactUsSubmitAPIView, FAQListAPIView, WorkspaceAPIView
 
 app_name = "accounts_user"
 
@@ -16,6 +16,7 @@ account_router.register(r'profile', ProfileViewset, basename='profile')
 urlpatterns = [
     path('', include(account_router.urls)),
     path('contact-us/', ContactUsSubmitAPIView.as_view(), name='contact-us-submit'),
+    path('workspace/', WorkspaceAPIView.as_view(), name='workspace'),
     path('faqs/', FAQListAPIView.as_view(), name='faq-list'),
     path('google/login/', GoogleLoginRedirectAPIView.as_view(), name='google_login'),
     path('google/login/complete/', GoogleLoginCompleteAPIView.as_view(), name='google_login_complete'),

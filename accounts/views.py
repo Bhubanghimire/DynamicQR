@@ -26,12 +26,13 @@ from rest_framework import status
 from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
 from accounts.middleware import create_user_session, generate_access_token, generate_refresh_token, generate_otp
-from accounts.models import FAQ, NotificationPreference, OTP, User, GoogleOAuthExchangeCode, UserSession
+from accounts.authentication import JWTAuthentication
+from accounts.models import FAQ, NotificationPreference, OTP, User, Workspace, GoogleOAuthExchangeCode, UserSession
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
     ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer, \
-    NotificationPreferenceSerializer, UserSessionSerializer
+    NotificationPreferenceSerializer, UserSessionSerializer, WorkspaceSerializer
 from subscriptions.models import Subscription
 from subscriptions.models import Invoice, Payment, PaymentMethod
 
@@ -616,6 +617,24 @@ class ContactUsSubmitSchema(AutoSchema):
         return super().get_response_serializer(path, method)
 
 
+class WorkspaceSchema(AutoSchema):
+    def get_tags(self, path, method):
+        return ["Accounts"]
+
+    def get_operation_id(self, path, method):
+        return f"accounts_workspace_{method.lower()}"
+
+    def get_request_serializer(self, path, method):
+        if method.upper() == "POST":
+            return WorkspaceSerializer()
+        return super().get_request_serializer(path, method)
+
+    def get_response_serializer(self, path, method):
+        if method.upper() in {"GET", "POST"}:
+            return WorkspaceSerializer()
+        return super().get_response_serializer(path, method)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class GoogleOAuthExchangeAPIView(APIView):
     permission_classes = [AllowAny]
@@ -679,6 +698,39 @@ class ContactUsSubmitAPIView(APIView):
         return Response(
             {"message": "Contact request submitted successfully."},
             status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class WorkspaceAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    schema = WorkspaceSchema()
+
+    def get_object(self, user):
+        return Workspace.objects.filter(owner=user).first()
+
+    def get(self, request):
+        workspace = self.get_object(request.user)
+        if workspace is None:
+            return Response(
+                {"message": "Workspace not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = WorkspaceSerializer(workspace)
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        workspace = self.get_object(request.user)
+        serializer = WorkspaceSerializer(workspace, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save(owner=request.user)
+        return Response(
+            {
+                "data": WorkspaceSerializer(instance).data,
+                "message": "Workspace saved successfully.",
+            },
+            status=status.HTTP_200_OK,
         )
 
 
