@@ -186,6 +186,13 @@ class SubscriptionUsageSerializer(serializers.Serializer):
     features = serializers.JSONField()
 
 
+class SubscriptionUsageSummarySerializer(serializers.Serializer):
+    subscription = serializers.JSONField()
+    features = serializers.JSONField()
+    quotas = serializers.JSONField()
+    metrics = serializers.JSONField()
+
+
 # serializers.py - Add SubscriptionSerializer
 
 class SubscriptionSerializer(serializers.ModelSerializer):

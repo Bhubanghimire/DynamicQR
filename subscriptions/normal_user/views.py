@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q, Prefetch
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
@@ -7,9 +8,10 @@ from uuid import UUID
 import re
 from rest_framework.response import Response
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from DynamicOCR.schemas import PaginatedAutoSchema
-from Qr.models import Project, QRCode
+from Qr.models import Project, QRCode, SharePermissions
 from DynamicOCR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription
 from subscriptions.serializers import (
@@ -19,6 +21,7 @@ from subscriptions.serializers import (
     PackageSerializer,
     PaymentMethodSerializer,
     SubscriptionUsageSerializer,
+    SubscriptionUsageSummarySerializer,
 )
 from subscriptions.services.dodo_billing_service import DodoBillingService, to_minor_units
 
@@ -229,6 +232,7 @@ class UsageViewSet(viewsets.GenericViewSet):
     serializer_class = SubscriptionUsageSerializer
     permission_classes_by_action = {
         "list": [IsAuthenticated],
+        "summary": [IsAuthenticated],
     }
 
     def get_permissions(self):
@@ -259,7 +263,19 @@ class UsageViewSet(viewsets.GenericViewSet):
         }
 
     def list(self, request):
-        subscription = Subscription.get_usage_subscription_for_user(request.user)
+        payload = self._build_usage_payload(request.user)
+
+        serializer = self.get_serializer(payload)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        payload = self._build_usage_summary_payload(request.user)
+        serializer = SubscriptionUsageSummarySerializer(payload)
+        return Response(serializer.data)
+
+    def _build_usage_payload(self, user):
+        subscription = Subscription.get_usage_subscription_for_user(user)
         if subscription:
             subscription = (
                 Subscription.objects.filter(pk=subscription.pk)
@@ -271,7 +287,7 @@ class UsageViewSet(viewsets.GenericViewSet):
                 .first()
             )
 
-        qr_queryset = QRCode.objects.filter(created_by=request.user)
+        qr_queryset = QRCode.objects.filter(created_by=user)
         qr_generated_count = qr_queryset.count()
 
         scan_totals = qr_queryset.aggregate(
@@ -293,7 +309,7 @@ class UsageViewSet(viewsets.GenericViewSet):
             team_member_limit = subscription.team_member_limit
             features = subscription.features or {}
 
-        payload = {
+        return {
             "subscription": subscription,
             "subscription_status": subscription.status if subscription else "none",
             "package": package,
@@ -308,8 +324,62 @@ class UsageViewSet(viewsets.GenericViewSet):
             "features": features,
         }
 
-        serializer = self.get_serializer(payload)
-        return Response(serializer.data)
+    def _build_usage_summary_payload(self, user):
+        usage_payload = self._build_usage_payload(user)
+        subscription = usage_payload["subscription"]
+        package = usage_payload["package"]
+        package_plan = usage_payload["package_plan"]
+        package_metadata = getattr(package, "metadata", {}) or {}
+        team_member_limit = usage_payload["team_member_limit"]
+        project_limit = package_metadata.get("project_limit")
+
+        return {
+            "subscription": {
+                "tier": (
+                    "free"
+                    if package and package.is_free
+                    else (package.title if package else None)
+                ),
+                "name": package.title if package else None,
+                "status": usage_payload["subscription_status"],
+                "auto_renew": subscription.auto_renew if subscription else False,
+            },
+            "features": usage_payload["features"] or {},
+            "quotas": {
+                "team_members": self._build_quota(
+                    self._get_team_member_usage(user),
+                    team_member_limit,
+                ),
+                "qr_codes": usage_payload["qr_usage"],
+                "scans": usage_payload["scan_usage"],
+                "projects": self._build_quota(
+                    Project.objects.filter(owner=user).count(),
+                    project_limit,
+                ),
+            },
+            "metrics": {
+                "project_count": Project.objects.filter(owner=user).count(),
+                "qr_code_count": usage_payload["qr_generated_count"],
+                "total_scan_count": usage_payload["total_scan_count"],
+                "unique_scan_count": usage_payload["unique_scan_count"],
+                "package_plan_id": str(package_plan.id) if package_plan else None,
+            },
+        }
+
+    def _get_team_member_usage(self, user):
+        project_content_type = ContentType.objects.get_for_model(Project)
+        owned_project_ids = Project.objects.filter(owner=user).values_list("id", flat=True)
+        return (
+            SharePermissions.objects.filter(
+                content_type=project_content_type,
+                resource_id__in=owned_project_ids,
+                is_deleted=False,
+            )
+            .exclude(user_id=user)
+            .values("user_id")
+            .distinct()
+            .count()
+        )
 
 
 class PaymentSchema(PaginatedAutoSchema):
@@ -397,7 +467,6 @@ from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
 from dodopayments import DodoPayments
 
 

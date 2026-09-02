@@ -11,7 +11,9 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.apps import apps
 from django.db import transaction
+from django.db.models.deletion import ProtectedError, RestrictedError
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -31,6 +33,7 @@ from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSeri
     ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer, \
     NotificationPreferenceSerializer
 from subscriptions.models import Subscription
+from subscriptions.models import Invoice, Payment, PaymentMethod
 
 from django.core import signing
 from urllib.parse import urlencode
@@ -388,6 +391,54 @@ class ProfileViewset(viewsets.GenericViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=False, methods=["DELETE"], url_path="delete-account")
+    def delete_account(self, request):
+        user = request.user
+        qr_code_model = apps.get_model("Qr", "QRCode")
+        has_payments = (
+            Payment.objects.filter(user=user).exists()
+            or Invoice.objects.filter(user=user).exists()
+            or PaymentMethod.objects.filter(user=user).exists()
+            or Subscription.objects.filter(user=user).exists()
+        )
+        has_created_qr = qr_code_model.objects.filter(created_by=user).exists()
+
+        deletion_mode = "hard"
+        message = "Account deleted permanently."
+
+        try:
+            with transaction.atomic():
+                if has_payments or has_created_qr:
+                    deletion_mode = "soft"
+                    message = "Account deleted successfully."
+                    user.is_active = False
+                    user.delete()
+                else:
+                    try:
+                        user.hard_delete()
+                    except (ProtectedError, RestrictedError):
+                        deletion_mode = "soft"
+                        message = "Account deleted successfully."
+                        user.is_active = False
+                        user.delete()
+        except Exception:
+            return Response(
+                {"message": "Account could not be deleted."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response = Response(
+            {
+                "data": {
+                    "deletion_mode": deletion_mode,
+                },
+                "message": message,
+            },
+            status=status.HTTP_200_OK,
+        )
+        response.delete_cookie("refresh_token", path="/")
+        return response
 
 
 def _get_dev_social_user():
