@@ -66,6 +66,7 @@ class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
     birth_date = models.DateField(blank=True, null=True)
     gender = models.ForeignKey(ConfigChoice, on_delete=models.PROTECT, blank=True, null=True, related_name="gender")
     user_type = models.ForeignKey(ConfigChoice, on_delete=models.PROTECT, null=True, blank=True)
+    is_two_factor_enabled = models.BooleanField(default=False)
     # workspace = models.ForeignKey(Workspace, on_delete=models.PROTECT, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

@@ -86,6 +86,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
             "birth_date",
             "gender",
             "user_type",
+            "is_two_factor_enabled",
             "date_joined",
         ]
         read_only_fields = fields
@@ -106,6 +107,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     birth_date = serializers.DateField(required=False, allow_null=True)
     gender = serializers.PrimaryKeyRelatedField(required=False, allow_null=True, queryset=ConfigChoice.objects.all())
     user_type = serializers.PrimaryKeyRelatedField(required=False, allow_null=True, queryset=ConfigChoice.objects.all())
+    is_two_factor_enabled = serializers.BooleanField(required=False)
 
     class Meta:
         model = User
@@ -115,6 +117,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             "birth_date",
             "gender",
             "user_type",
+            "is_two_factor_enabled",
         ]
 
 

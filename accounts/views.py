@@ -217,6 +217,8 @@ class AuthViewSet(viewsets.ViewSet):
             {
                 "data": {
                     "access_token": access_token,
+                    "email": user.email,
+                    "is_two_factor_enabled": user.is_two_factor_enabled,
                 },
                 "message": "Logged in successfully."
             },
