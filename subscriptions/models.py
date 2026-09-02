@@ -81,6 +81,14 @@ class PackagePlan(SoftDeletable):
         default=0,
         help_text="Maximum team members. 0 = no team members allowed"
     )
+    bulk_upload = models.PositiveIntegerField(
+        default=0,
+        help_text="Maximum Bulk upload. 0 = no team members allowed"
+    )
+    domain_add = models.PositiveIntegerField(
+        default=0,
+        help_text="Maximum domain add. 0 = no team members allowed"
+    )
 
     # Additional features as JSON for flexibility
     features = models.JSONField(
