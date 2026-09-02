@@ -42,6 +42,12 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault('is_superuser', False)
         return self._create_user(email, password, **extra_fields)
 
+class Workspace(SoftDeletable):
+    name = models.CharField(max_length=255)
+    default_json = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
 
 class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
     email = models.EmailField(unique=True)
@@ -53,6 +59,7 @@ class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
     birth_date = models.DateField(blank=True, null=True)
     gender = models.ForeignKey(ConfigChoice, on_delete=models.PROTECT, blank=True, null=True, related_name="gender")
     user_type = models.ForeignKey(ConfigChoice, on_delete=models.PROTECT, null=True, blank=True)
+    workspace = models.ForeignKey(Workspace, on_delete=models.PROTECT, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)
