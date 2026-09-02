@@ -166,3 +166,28 @@ class NotificationPreference(models.Model):
 
     def __str__(self):
         return f'Notification preferences for {self.user.email}'
+
+
+class UserSession(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='sessions',
+    )
+    session_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    user_agent = models.CharField(max_length=512, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    is_revoked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ['-last_seen_at', '-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_revoked']),
+            models.Index(fields=['user', 'expires_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.user.email} - {self.session_id}'

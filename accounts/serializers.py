@@ -1,6 +1,6 @@
 
 from rest_framework import serializers
-from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User
+from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, UserSession
 from system.models import ConfigChoice
 
 
@@ -159,3 +159,27 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             'product_updates',
             'security_alerts',
         ]
+
+
+class UserSessionSerializer(serializers.ModelSerializer):
+    is_current = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserSession
+        fields = [
+            'session_id',
+            'user_agent',
+            'ip_address',
+            'is_revoked',
+            'created_at',
+            'last_seen_at',
+            'expires_at',
+            'is_current',
+        ]
+
+    def get_is_current(self, obj):
+        request = self.context.get('request')
+        payload = getattr(request, 'auth', None) if request else None
+        if not isinstance(payload, dict):
+            return False
+        return str(payload.get('session_id')) == str(obj.session_id)

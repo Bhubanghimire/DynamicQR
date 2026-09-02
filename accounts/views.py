@@ -25,13 +25,13 @@ from rest_framework.schemas.openapi import AutoSchema
 from rest_framework import status
 from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
-from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
-from accounts.models import FAQ, NotificationPreference, OTP, User, GoogleOAuthExchangeCode
+from accounts.middleware import create_user_session, generate_access_token, generate_refresh_token, generate_otp
+from accounts.models import FAQ, NotificationPreference, OTP, User, GoogleOAuthExchangeCode, UserSession
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
     ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer, \
-    NotificationPreferenceSerializer
+    NotificationPreferenceSerializer, UserSessionSerializer
 from subscriptions.models import Subscription
 from subscriptions.models import Invoice, Payment, PaymentMethod
 
@@ -161,8 +161,20 @@ class AuthViewSet(viewsets.ViewSet):
         if not user.is_active:
             raise exceptions.AuthenticationFailed('user is inactive')
 
-        access_token = generate_access_token(user)
-        refresh_token = generate_refresh_token(user)
+        session_id = payload.get("session_id")
+        session = None
+        if session_id:
+            session = UserSession.objects.filter(
+                user=user,
+                session_id=session_id,
+                is_revoked=False,
+            ).first()
+
+        if session is None:
+            session = create_user_session(user, request)
+
+        access_token = generate_access_token(user, session.session_id)
+        refresh_token = generate_refresh_token(user, session.session_id)
 
         response = Response(
             {
@@ -195,8 +207,9 @@ class AuthViewSet(viewsets.ViewSet):
             )
 
 
-        access_token = generate_access_token(user)
-        refresh_token = generate_refresh_token(user)
+        session = create_user_session(user, request)
+        access_token = generate_access_token(user, session.session_id)
+        refresh_token = generate_refresh_token(user, session.session_id)
 
 
         response = Response(
@@ -260,8 +273,22 @@ class AuthViewSet(viewsets.ViewSet):
             )
             Subscription.get_or_create_default_subscription(user)
             check_otp.delete()
-        access_token = generate_access_token(user)
-        refresh_token = generate_refresh_token(user)
+        session_id = None
+        if isinstance(request.auth, dict):
+            session_id = request.auth.get("session_id")
+
+        session = None
+        if session_id:
+            session = UserSession.objects.filter(
+                user=request.user,
+                session_id=session_id,
+                is_revoked=False,
+            ).first()
+        if session is None:
+            session = create_user_session(user, request)
+
+        access_token = generate_access_token(user, session.session_id)
+        refresh_token = generate_refresh_token(user, session.session_id)
 
         response = {
             "data": {
@@ -391,6 +418,20 @@ class ProfileViewset(viewsets.GenericViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=False, methods=["GET"], url_path="sessions")
+    def active_sessions(self, request):
+        sessions = UserSession.objects.filter(
+            user=request.user,
+            is_revoked=False,
+            expires_at__gt=timezone.now(),
+        )
+        serializer = UserSessionSerializer(
+            sessions,
+            many=True,
+            context={"request": request},
+        )
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["DELETE"], url_path="delete-account")
     def delete_account(self, request):
@@ -587,8 +628,9 @@ class GoogleOAuthExchangeAPIView(APIView):
             exchange_code.save(update_fields=["used_at"])
             user = exchange_code.user
 
-        access_token = generate_access_token(user)
-        refresh_token = generate_refresh_token(user)
+        session = create_user_session(user, request)
+        access_token = generate_access_token(user, session.session_id)
+        refresh_token = generate_refresh_token(user, session.session_id)
         user_data = ProfileDetailSerializer(user, context={"request": request}).data
 
         response = Response(
