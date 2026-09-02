@@ -153,6 +153,7 @@ class PackagePlanAdmin(admin.ModelAdmin):
                 "fields": (
                     "package",
                     "duration",
+                    "dodo_product_id",
                     "is_active",
                 )
             },

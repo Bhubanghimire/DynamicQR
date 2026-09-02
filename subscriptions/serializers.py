@@ -18,6 +18,7 @@ class CheckoutSessionCreateSerializer(serializers.Serializer):
     product_id = serializers.CharField(required=False, allow_blank=False)
     package_plan_id = serializers.CharField(required=False, allow_blank=False)
     quantity = serializers.IntegerField(min_value=1, default=1)
+    auto_renew = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         product_id = attrs.get("product_id")
@@ -80,7 +81,10 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
             "payment_type",
             "card_brand",
             "card_last_four",
+            "card_expiry_month",
+            "card_expiry_year",
             "is_default",
+            "is_active",
         )
 
 
@@ -116,6 +120,7 @@ class SubscriptionSummarySerializer(serializers.ModelSerializer):
             "status",
             "started_at",
             "expires_at",
+            "billing_duration_days",
             "auto_renew",
             "package_plan",
         )
@@ -179,3 +184,73 @@ class SubscriptionUsageSerializer(serializers.Serializer):
     unique_scan_count = serializers.IntegerField()
     team_member_limit = serializers.IntegerField(allow_null=True)
     features = serializers.JSONField()
+
+
+# serializers.py - Add SubscriptionSerializer
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    """Serializer for Subscription with auto-renew support"""
+
+    package_name = serializers.CharField(source='package_plan.package.title', read_only=True)
+    duration_name = serializers.CharField(source='package_plan.duration.name', read_only=True)
+    days_remaining = serializers.SerializerMethodField()
+    is_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Subscription
+        fields = (
+            'id',
+            'user',
+            'package_plan',
+            'package_name',
+            'duration_name',
+            'price',
+            'currency',
+            'billing_duration_days',
+            'started_at',
+            'expires_at',
+            'status',
+            'auto_renew',
+            'dodo_subscription_id',
+            'last_renewal_date',
+            'next_billing_date',
+            'cancelled_at',
+            'created_at',
+            'updated_at',
+            'days_remaining',
+            'is_active',
+        )
+        read_only_fields = (
+            'id',
+            'user',
+            'package_plan',
+            'price',
+            'currency',
+            'billing_duration_days',
+            'started_at',
+            'expires_at',
+            'status',
+            'dodo_subscription_id',
+            'last_renewal_date',
+            'next_billing_date',
+            'cancelled_at',
+            'created_at',
+            'updated_at',
+        )
+
+    def get_days_remaining(self, obj):
+        return obj.days_remaining()
+
+    def get_is_active(self, obj):
+        return obj.is_active()
+
+
+class SubscriptionUpdateSerializer(serializers.ModelSerializer):
+    """Simplified serializer for updating subscription"""
+
+    class Meta:
+        model = Subscription
+        fields = ('auto_renew',)
+        extra_kwargs = {
+            'auto_renew': {'required': True},
+        }

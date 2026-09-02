@@ -304,8 +304,22 @@ USE_X_FORWARDED_HOST = True
 CUSTOM_DOMAIN_CNAME_TARGET="qrapi.cogniasystems.com"
 BASE_DOMAIN="qrapi.cogniasystems.com"
 DODO_PAYMENTS_API_KEY = config("DODO_API_KEY", default=None)
-print(DODO_PAYMENTS_API_KEY)
+# print(DODO_PAYMENTS_API_KEY)
+# DODO_SUBSCRIPTION_PRODUCT_ID = config("DODO_SUBSCRIPTION_PRODUCT_ID", default="pdt_0NmevMBs1Ny7Ol2lzyq3H")
 LETSENCRYPT_EMAIL = "admin@yourdomain.com"
+
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=env("REDIS_URL"))
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=env("REDIS_URL"))
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "process-due-subscription-renewals": {
+        "task": "subscriptions.tasks.process_due_subscription_renewals",
+        "schedule": 300,
+    }
+}
 
 # DNS Settings
 DNS_NAMESERVERS = [
@@ -321,3 +335,7 @@ PROXY_CONNECT_TIMEOUT = "60s"
 PROXY_SEND_TIMEOUT = "120s"
 PROXY_READ_TIMEOUT = "120s"
 DODO_WEBHOOK_SECRET = os.environ.get('DODO_WEBHOOK_SECRET', '')
+DODO_PRODUCT_TAX_CATEGORY = config(
+    "DODO_PRODUCT_TAX_CATEGORY",
+    default="saas",
+)
