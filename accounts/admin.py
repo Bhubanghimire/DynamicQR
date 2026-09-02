@@ -1,5 +1,8 @@
+from django import forms
+from django.db import models
 from django.contrib import admin
-from accounts.models import OTP, User
+
+from accounts.models import ContactUs, FAQ, OTP, User
 
 
 @admin.register(User)
@@ -16,3 +19,23 @@ class OTPAdmin(admin.ModelAdmin):
     search_fields = ("email", "otp")
     list_filter = ("is_used", "created_at")
     ordering = ("-created_at",)
+
+
+@admin.register(ContactUs)
+class ContactUsAdmin(admin.ModelAdmin):
+    list_display = ("id", "full_name", "email", "phone", "subject", "created_at")
+    search_fields = ("full_name", "email", "phone", "subject", "message")
+    ordering = ("-created_at",)
+
+
+@admin.register(FAQ)
+class FAQAdmin(admin.ModelAdmin):
+    list_display = ("id", "question", "is_active", "display_order", "created_at", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("question", "answer")
+    ordering = ("display_order", "id")
+    formfield_overrides = {
+        models.TextField: {
+            "widget": forms.Textarea(attrs={"rows": 12, "cols": 100})
+        },
+    }

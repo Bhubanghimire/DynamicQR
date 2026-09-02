@@ -24,11 +24,11 @@ from rest_framework import status
 from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_500_INTERNAL_SERVER_ERROR
 
 from accounts.middleware import generate_access_token, generate_refresh_token, generate_otp
-from accounts.models import OTP, User, GoogleOAuthExchangeCode
+from accounts.models import FAQ, OTP, User, GoogleOAuthExchangeCode
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
-    ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer
+    ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer
 from subscriptions.models import Subscription
 
 from django.core import signing
@@ -525,3 +525,37 @@ class GoogleOAuthExchangeAPIView(APIView):
             status=HTTP_200_OK,
         )
         return set_refresh_cookie(response, refresh_token)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class ContactUsSubmitAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def post(self, request):
+        serializer = ContactUsSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"message": "Contact request submitted successfully."},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class FAQListAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = []
+
+    def get(self, request):
+        faqs = FAQ.objects.filter(is_active=True).order_by('display_order', 'id')
+        serializer = FAQListSerializer(faqs, many=True)
+        return Response(
+            {
+                "data": serializer.data,
+                "message": "FAQs fetched successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )

@@ -1,6 +1,6 @@
 
 from rest_framework import serializers
-from accounts.models import OTP, User
+from accounts.models import ContactUs, FAQ, OTP, User
 from system.models import ConfigChoice
 
 
@@ -136,3 +136,15 @@ class MessageResponseSerializer(serializers.Serializer):
 class ChangePasswordResponseSerializer(serializers.Serializer):
     data = serializers.DictField()
     message = serializers.CharField()
+
+
+class ContactUsSubmitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactUs
+        fields = ['full_name', 'email', 'phone', 'subject', 'message']
+
+
+class FAQListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FAQ
+        fields = ['id', 'question', 'answer']
