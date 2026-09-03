@@ -127,6 +127,8 @@ class PackagePlanAdmin(admin.ModelAdmin):
         "max_qrs",
         "max_scans",
         "max_team_members",
+        "max_bulk_upload",
+        "max_domain_add",
         "is_active",
     )
 
@@ -174,6 +176,8 @@ class PackagePlanAdmin(admin.ModelAdmin):
                     "max_qrs",
                     "max_scans",
                     "max_team_members",
+                    "max_bulk_upload",
+                    "max_domain_add",
                 )
             },
         ),
@@ -359,6 +363,8 @@ class SubscriptionAdmin(admin.ModelAdmin):
                     "scan_limit",
                     "scan_limit_remaining",
                     "team_member_limit",
+                    "bulk_upload_limit",
+                    "domain_add_limit",
                     "features",
                 )
             },

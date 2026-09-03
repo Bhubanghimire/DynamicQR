@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from Qr.models import Invitations, Project
 from Qr.models import QRCode, QRScanSetting
+from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
 
 
@@ -154,3 +155,49 @@ class QRCodeListTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["data"])
         self.assertEqual(response.data["data"][0]["domain_name"], "https://example.com")
+
+
+class CustomDomainLimitTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="domain-limit@example.com",
+            password="password123",
+            full_name="Domain Limit User",
+            phone="5555555555",
+        )
+        self.free_package = Package.objects.create(
+            title="No Domains",
+            description="Package without custom domains",
+            is_free=True,
+            is_active=True,
+            display_order=0,
+        )
+        self.free_plan = PackagePlan.objects.create(
+            package=self.free_package,
+            duration=None,
+            price=0,
+            currency="USD",
+            max_qrs=5,
+            max_scans=25,
+            max_team_members=0,
+            max_bulk_upload=10,
+            max_domain_add=0,
+            is_active=True,
+        )
+        Subscription.get_or_create_default_subscription(self.user)
+
+    def test_domain_create_respects_package_limit(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            "/api/v1.1/user/domains/",
+            {"domain": "example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["message"], "Custom domain limit reached for your package.")
+        self.assertEqual(response.data["data"]["limit"], 0)

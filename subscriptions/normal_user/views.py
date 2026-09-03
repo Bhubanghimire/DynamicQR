@@ -11,7 +11,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from DynamicOCR.schemas import PaginatedAutoSchema
-from Qr.models import Project, QRCode, SharePermissions
+from Qr.models import CustomDomain, Project, QRCode, SharePermissions
 from DynamicOCR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription
 from subscriptions.serializers import (
@@ -301,13 +301,22 @@ class UsageViewSet(viewsets.GenericViewSet):
         qr_limit = None
         scan_limit = None
         team_member_limit = None
+        bulk_upload_limit = None
+        domain_add_limit = None
         features = {}
 
         if subscription and subscription.package_plan:
             qr_limit = subscription.qr_limit if subscription.qr_limit is not None else subscription.package_plan.max_qrs
             scan_limit = subscription.scan_limit if subscription.scan_limit is not None else subscription.package_plan.max_scans
             team_member_limit = subscription.team_member_limit
+            bulk_upload_limit = subscription.bulk_upload_limit
+            domain_add_limit = subscription.domain_add_limit
             features = subscription.features or {}
+
+        domain_add_count = CustomDomain.objects.filter(
+            user=user,
+            is_deleted=False,
+        ).count()
 
         return {
             "subscription": subscription,
@@ -321,6 +330,9 @@ class UsageViewSet(viewsets.GenericViewSet):
             "total_scan_count": total_scan_count,
             "unique_scan_count": unique_scan_count,
             "team_member_limit": team_member_limit,
+            "bulk_upload_limit": bulk_upload_limit,
+            "domain_add_limit": domain_add_limit,
+            "domain_add_usage": self._build_quota(domain_add_count, domain_add_limit),
             "features": features,
         }
 
@@ -331,6 +343,8 @@ class UsageViewSet(viewsets.GenericViewSet):
         package_plan = usage_payload["package_plan"]
         package_metadata = getattr(package, "metadata", {}) or {}
         team_member_limit = usage_payload["team_member_limit"]
+        bulk_upload_limit = usage_payload["bulk_upload_limit"]
+        domain_add_limit = usage_payload["domain_add_limit"]
         project_limit = package_metadata.get("project_limit")
 
         return {
@@ -352,6 +366,11 @@ class UsageViewSet(viewsets.GenericViewSet):
                 ),
                 "qr_codes": usage_payload["qr_usage"],
                 "scans": usage_payload["scan_usage"],
+                "custom_domains": usage_payload["domain_add_usage"],
+                "bulk_upload_rows": self._build_quota(
+                    0,
+                    bulk_upload_limit,
+                ),
                 "projects": self._build_quota(
                     Project.objects.filter(owner=user).count(),
                     project_limit,
@@ -362,6 +381,9 @@ class UsageViewSet(viewsets.GenericViewSet):
                 "qr_code_count": usage_payload["qr_generated_count"],
                 "total_scan_count": usage_payload["total_scan_count"],
                 "unique_scan_count": usage_payload["unique_scan_count"],
+                "custom_domain_count": usage_payload["domain_add_usage"]["used"],
+                "bulk_upload_limit": bulk_upload_limit,
+                "domain_add_limit": domain_add_limit,
                 "package_plan_id": str(package_plan.id) if package_plan else None,
             },
         }

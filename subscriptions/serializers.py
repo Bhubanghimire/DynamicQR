@@ -50,6 +50,8 @@ class PackagePlanSerializer(serializers.ModelSerializer):
             "max_qrs",
             "max_scans",
             "max_team_members",
+            "max_bulk_upload",
+            "max_domain_add",
             "features",
             "is_active",
         )
@@ -105,6 +107,8 @@ class InvoicePackagePlanSerializer(serializers.ModelSerializer):
             "max_qrs",
             "max_scans",
             "max_team_members",
+            "max_bulk_upload",
+            "max_domain_add",
             "features",
             "is_active",
         )
@@ -184,6 +188,9 @@ class SubscriptionUsageSerializer(serializers.Serializer):
     total_scan_count = serializers.IntegerField()
     unique_scan_count = serializers.IntegerField()
     team_member_limit = serializers.IntegerField(allow_null=True)
+    bulk_upload_limit = serializers.IntegerField(allow_null=True)
+    domain_add_limit = serializers.IntegerField(allow_null=True)
+    domain_add_usage = UsageQuotaSerializer()
     features = serializers.JSONField()
 
 

@@ -68,6 +68,8 @@ class SubscriptionUsageFallbackTests(TestCase):
             max_qrs=5,
             max_scans=25,
             max_team_members=0,
+            max_bulk_upload=10,
+            max_domain_add=2,
             is_active=True,
         )
 
@@ -87,6 +89,10 @@ class SubscriptionUsageFallbackTests(TestCase):
         self.assertEqual(response.data["package_title"], self.free_package.title)
         self.assertEqual(response.data["qr_usage"]["limit"], self.free_plan.max_qrs)
         self.assertEqual(response.data["scan_usage"]["limit"], self.free_plan.max_scans)
+        self.assertEqual(response.data["bulk_upload_limit"], self.free_plan.max_bulk_upload)
+        self.assertEqual(response.data["domain_add_limit"], self.free_plan.max_domain_add)
+        self.assertEqual(response.data["domain_add_usage"]["limit"], self.free_plan.max_domain_add)
+        self.assertEqual(response.data["domain_add_usage"]["used"], 0)
         self.assertEqual(response.data["qr_usage"]["used"], 0)
         self.assertEqual(response.data["scan_usage"]["used"], 0)
         self.assertTrue(
@@ -113,6 +119,8 @@ class RegisterFreeSubscriptionTests(TestCase):
             max_qrs=10,
             max_scans=50,
             max_team_members=0,
+            max_bulk_upload=10,
+            max_domain_add=1,
             is_active=True,
         )
 
@@ -136,4 +144,6 @@ class RegisterFreeSubscriptionTests(TestCase):
         subscription = Subscription.objects.get(user=user, package_plan=self.free_plan)
         self.assertEqual(subscription.status, Subscription.Status.ACTIVE)
         self.assertEqual(subscription.price, 0)
+        self.assertEqual(subscription.bulk_upload_limit, self.free_plan.max_bulk_upload)
+        self.assertEqual(subscription.domain_add_limit, self.free_plan.max_domain_add)
         self.assertEqual(response.data["message"], "loggedIn successfully.")

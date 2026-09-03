@@ -9,7 +9,7 @@ import secrets
 from datetime import timedelta
 from django.template.loader import render_to_string
 from django.http import JsonResponse
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
@@ -19,7 +19,14 @@ from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
 from Qr.services.ssl_provisioning_service import SSLProvisioningService
 
-from Qr.tasks import process_qr_import, get_importer, load_import_workbook_rows, verify_and_activate_domain_async
+from Qr.tasks import (
+    process_qr_import,
+    get_bulk_upload_limit,
+    get_importer,
+    get_qr_limit,
+    load_import_workbook_rows,
+    verify_and_activate_domain_async,
+)
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
@@ -39,7 +46,75 @@ from Qr.serializers import (
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
+from subscriptions.models import Subscription
 from system.models import ConfigChoice
+
+
+def _build_limit_response(message, limit, used, requested=1):
+    remaining = None if limit is None else max(limit - used, 0)
+    return Response(
+        {
+            "data": {
+                "limit": limit,
+                "used": used,
+                "remaining": remaining,
+                "requested": requested,
+            },
+            "message": message,
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _enforce_qr_limit(user, requested=1):
+    qr_limit = get_qr_limit(user)
+    if qr_limit is None:
+        return None
+
+    used = QRCode.objects.filter(
+        created_by=user,
+        is_deleted=False,
+    ).count()
+    if used + requested > qr_limit:
+        return _build_limit_response(
+            "QR code limit reached for your package.",
+            qr_limit,
+            used,
+            requested,
+        )
+
+    return None
+
+
+def _get_domain_add_limit(user):
+    subscription = Subscription.get_usage_subscription_for_user(user)
+    if not subscription:
+        return 0
+
+    if subscription.domain_add_limit is not None:
+        return subscription.domain_add_limit
+
+    package_plan = getattr(subscription, "package_plan", None)
+    return package_plan.max_domain_add if package_plan else 0
+
+
+def _enforce_domain_add_limit(user):
+    domain_add_limit = _get_domain_add_limit(user)
+    if domain_add_limit is None:
+        return None
+
+    used = CustomDomain.objects.filter(
+        user=user,
+        is_deleted=False,
+    ).count()
+    if used + 1 > domain_add_limit:
+        return _build_limit_response(
+            "Custom domain limit reached for your package.",
+            domain_add_limit,
+            used,
+        )
+
+    return None
 
 
 class ProjectSchema(PaginatedAutoSchema):
@@ -542,6 +617,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
                 {"data": serializer.errors, "message": "Validation error."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        limit_response = _enforce_qr_limit(request.user)
+        if limit_response is not None:
+            return limit_response
+
         qr_code = serializer.save()
         return Response(
             {"data": self.get_serializer(qr_code).data, "message": "QR code created successfully."},
@@ -727,6 +807,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="duplicate")
     def duplicate(self, request, *args, **kwargs):
         source_qr = self.get_object()
+        limit_response = _enforce_qr_limit(request.user)
+        if limit_response is not None:
+            return limit_response
+
         serializer = self.get_serializer(
             data=request.data,
             context={**self.get_serializer_context(), "source_qr": source_qr},
@@ -1557,6 +1641,37 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
+        bulk_upload_limit = get_bulk_upload_limit(request.user)
+        temp_import_job = QRImportJob(
+            user=request.user,
+            project=project,
+            qr_type=qr_type,
+            file=file,
+            design_data=design_data,
+        )
+
+        try:
+            headers, data_rows = load_import_workbook_rows(
+                temp_import_job,
+                max_rows=bulk_upload_limit,
+            )
+        except ValueError as exc:
+            return Response(
+                {
+                    "data": {"error": str(exc)},
+                    "message": "Import failed.",
+                    "status": "error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        finally:
+            if hasattr(file, "seek"):
+                file.seek(0)
+
+        limit_response = _enforce_qr_limit(request.user, requested=len(data_rows))
+        if limit_response is not None:
+            return limit_response
+
         # Get PENDING status from ConfigChoice
 
         pending_status = ConfigChoice.objects.get(
@@ -1654,6 +1769,8 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
+        bulk_upload_limit = get_bulk_upload_limit(request.user)
+
         pending_status = ConfigChoice.objects.get(
             id="f1f4c191-dadd-43a3-8cba-b021485c418c",
         )
@@ -1668,7 +1785,14 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         )
 
         try:
-            headers, data_rows = load_import_workbook_rows(import_job)
+            headers, data_rows = load_import_workbook_rows(
+                import_job,
+                max_rows=bulk_upload_limit,
+            )
+            limit_response = _enforce_qr_limit(request.user, requested=len(data_rows))
+            if limit_response is not None:
+                return limit_response
+
             importer = get_importer(import_job.qr_type)
             importer.validate_headers(headers)
         except Exception as exc:
@@ -1755,6 +1879,10 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         """Create a new custom domain and start verification"""
+        limit_response = _enforce_domain_add_limit(request.user)
+        if limit_response is not None:
+            return limit_response
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
