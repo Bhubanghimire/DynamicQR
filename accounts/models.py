@@ -7,6 +7,8 @@ from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.db.transaction import atomic
+
+# from Qr.models import CustomDomain
 from system.models import ConfigChoice, SoftDeletable
 
 
@@ -51,6 +53,7 @@ class Workspace(SoftDeletable):
         blank=True,
     )
     name = models.CharField(max_length=255)
+    domain = models.ForeignKey("Qr.CustomDomain", on_delete=models.PROTECT, null=True, blank=True)
     default_json = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

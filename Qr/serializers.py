@@ -847,6 +847,7 @@ class CustomDomainSerializer(serializers.ModelSerializer):
             'id',
             'domain',
             'status',
+            'is_default',
             'verification_token',
             'verified_at',
             'activated_at',

@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
 from Qr.services.ssl_provisioning_service import SSLProvisioningService
@@ -330,6 +330,23 @@ class CustomDomainSchema(PaginatedAutoSchema):
         if getattr(self.view, "action", None) in {"verify", "verify_by_token"}:
             return None
         return super().get_request_body(path, method)
+
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if getattr(self.view, "action", None) == "list":
+            params.append(
+                {
+                    "name": "status",
+                    "required": False,
+                    "in": "query",
+                    "description": "Filter custom domains by status. Use one of the `CustomDomain.Status` values.",
+                    "schema": {
+                        "type": "string",
+                        "enum": [choice[0] for choice in CustomDomain.Status.choices],
+                    },
+                }
+            )
+        return params
 
     def get_operation(self, path, method):
         operation = super().get_operation(path, method)
@@ -1910,10 +1927,25 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return CustomDomain.objects.filter(
+        queryset = CustomDomain.objects.filter(
             user=self.request.user,
             is_deleted=False
         )
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            valid_statuses = {choice[0] for choice in CustomDomain.Status.choices}
+            normalized_status = status_param.strip().lower()
+            if normalized_status not in valid_statuses:
+                raise ValidationError(
+                    {
+                        "status": (
+                            "Invalid status. Use one of: "
+                            + ", ".join(sorted(valid_statuses))
+                        )
+                    }
+                )
+            queryset = queryset.filter(status=normalized_status)
+        return queryset
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -2014,6 +2046,18 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             'data': result,
             'message': result.get('message', 'Domain deactivated successfully')
         })
+
+    @action(detail=True, methods=['post'])
+    def make_default(self, request, pk=None):
+        domain = self.get_object()
+        CustomDomain.objects.filter(user=self.request.user).update(is_default=False)
+        domain.is_default = True
+        domain.save()
+
+        return Response({'data': {},
+                'message': 'Default domain was made successfully.',
+            }, status=200)
+
 
     @action(detail=False, methods=['get'])
     def status(self, request):
