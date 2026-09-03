@@ -406,7 +406,7 @@ class ProfileViewset(viewsets.GenericViewSet):
         serializer = self.get_serializer(preference)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["POST"], url_path="notification-preferences")
+    @action(detail=False, methods=["POST"], url_path="notification-preference")
     def update_notification_preferences(self, request):
         preference, _ = NotificationPreference.objects.get_or_create(
             user=request.user
