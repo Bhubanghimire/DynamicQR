@@ -52,6 +52,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 class QRCodeSerializer(serializers.ModelSerializer):
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
     permission = serializers.SerializerMethodField()
+    access_level = serializers.SerializerMethodField()
     domain_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -92,21 +93,52 @@ class QRCodeSerializer(serializers.ModelSerializer):
         if obj.created_by_id == request.user.id:
             return "edit"
 
-        content_type = ContentType.objects.get_for_model(QRCode)
-        shared_permission = SharePermissions.objects.filter(
-            user_id=request.user,
-            content_type=content_type,
+        access_level = self._get_effective_access_level(obj, request.user)
+        if access_level is None:
+            return None
+
+        if access_level in {"all", "admin", "edit"}:
+            return "edit"
+        if access_level == "view":
+            return "view"
+        if access_level == "delete":
+            return "edit"
+        return access_level
+
+    def get_access_level(self, obj):
+        request = self.context.get("request")
+        if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
+            return None
+
+        if obj.created_by_id == request.user.id:
+            return "all"
+
+        return self._get_effective_access_level(obj, request.user)
+
+    def _get_effective_access_level(self, obj, user):
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
+        direct_qr_permission = SharePermissions.objects.filter(
+            user_id=user,
+            content_type=qr_content_type,
             resource_id=obj.id,
             is_deleted=False,
         ).select_related("role").first()
+        if direct_qr_permission is not None:
+            return (direct_qr_permission.role.name or "").strip().lower() or None
 
-        if shared_permission is None:
-            return None
+        if obj.project_id:
+            project_permission = SharePermissions.objects.filter(
+                user_id=user,
+                content_type=project_content_type,
+                resource_id=obj.project_id,
+                is_deleted=False,
+            ).select_related("role").first()
+            if project_permission is not None:
+                return (project_permission.role.name or "").strip().lower() or None
 
-        role_name = (shared_permission.role.name or "").strip().lower()
-        if "view" in role_name:
-            return "view"
-        return "edit"
+        return None
 
 
 class QRCodeDataSerializer(serializers.ModelSerializer):
@@ -430,8 +462,25 @@ class ProjectDetailSerializer(ProjectSerializer):
         pass
 
     def get_qrcodes(self, obj):
-        qrcodes = QRCode.objects.filter(project=obj, is_deleted=False)
-        return QRCodeSerializer(qrcodes, many=True).data
+        request = self.context.get("request")
+        qrcodes = QRCode.objects.filter(project=obj, is_deleted=False).order_by("name")
+
+        if request is not None and getattr(request, "user", None) and request.user.is_authenticated:
+            if obj.owner_id == request.user.id:
+                return QRCodeSerializer(qrcodes, many=True, context=self.context).data
+
+            project_content_type = ContentType.objects.get_for_model(Project)
+            has_project_access = SharePermissions.objects.filter(
+                user_id=request.user,
+                content_type=project_content_type,
+                resource_id=obj.id,
+                is_deleted=False,
+            ).exists()
+
+            if has_project_access:
+                return QRCodeSerializer(qrcodes, many=True, context=self.context).data
+
+        return []
 
 
 class ProjectQRActionSerializer(serializers.Serializer):

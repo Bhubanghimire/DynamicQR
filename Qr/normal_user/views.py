@@ -397,7 +397,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(owner=self.request.user)
+        project_content_type = ContentType.objects.get_for_model(Project)
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        return queryset.filter(
+            Q(owner=self.request.user) | Q(id__in=shared_project_ids)
+        )
 
     def get_search_fields(self):
         if self.action == "qrs":
@@ -507,19 +516,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="qrs")
     def qrs(self, request, *args, **kwargs):
         project = self.get_object()
-        content_type = ContentType.objects.get_for_model(QRCode)
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
         shared_qr_ids = SharePermissions.objects.filter(
             user_id=request.user,
-            content_type=content_type,
+            content_type=qr_content_type,
             is_deleted=False,
             resource_id__isnull=False,
         ).values_list("resource_id", flat=True)
+
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=request.user,
+            content_type=project_content_type,
+            resource_id=project.id,
+            is_deleted=False,
+        ).exists()
 
         qrcodes = QRCode.objects.filter(
             project=project,
             is_deleted=False,
         ).filter(
-            Q(created_by=request.user) | Q(id__in=shared_qr_ids)
+            Q(created_by=request.user)
+            | Q(id__in=shared_qr_ids)
+            | (Q(project=project) if shared_project_ids else Q(pk__in=[]))
         ).order_by("name")
         qrcodes = self.filter_queryset(qrcodes)
         paginator = CustomPagination()
@@ -548,7 +568,26 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "scan":
             return queryset
-        return queryset.filter(created_by=self.request.user)
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
+        shared_qr_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=qr_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        return queryset.filter(
+            Q(created_by=self.request.user)
+            | Q(id__in=shared_qr_ids)
+            | Q(project_id__in=shared_project_ids)
+        )
 
     def _get_client_ip(self, request):
         x_real_ip = request.META.get("HTTP_X_REAL_IP")
