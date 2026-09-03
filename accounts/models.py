@@ -53,7 +53,7 @@ class Workspace(SoftDeletable):
         blank=True,
     )
     name = models.CharField(max_length=255)
-    domain = models.ForeignKey("Qr.CustomDomain", on_delete=models.PROTECT, null=True, blank=True)
+    # domain = models.ForeignKey("Qr.CustomDomain", on_delete=models.PROTECT, null=True, blank=True)
     default_json = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

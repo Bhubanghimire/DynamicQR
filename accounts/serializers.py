@@ -72,6 +72,7 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 class ProfileDetailSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
+    workspace = serializers.SerializerMethodField()
     gender = serializers.PrimaryKeyRelatedField(read_only=True)
     user_type = serializers.PrimaryKeyRelatedField(read_only=True)
 
@@ -83,6 +84,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
             "full_name",
             "phone",
             "profile",
+            "workspace",
             "birth_date",
             "gender",
             "user_type",
@@ -99,6 +101,12 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(obj.profile.url)
         return obj.profile.url
+
+    def get_workspace(self, obj):
+        workspace = getattr(obj, "owned_workspace", None)
+        if workspace is None:
+            return None
+        return WorkspaceSerializer(workspace, context=self.context).data
 
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
@@ -165,16 +173,35 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
 
 
 class WorkspaceSerializer(serializers.ModelSerializer):
+    active_domain = serializers.SerializerMethodField()
+
     class Meta:
         model = Workspace
         fields = [
             "id",
             "name",
+            "active_domain",
             "default_json",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_active_domain(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        if user is None or not getattr(user, "is_authenticated", False):
+            return None
+
+        domain = user.custom_domains.filter(
+            status="active",
+            is_deleted=False,
+        ).first()
+        if domain is None:
+            return None
+
+        from Qr.serializers import CustomDomainSerializer
+        return {"id":domain.id, "name":domain.domain} #CustomDomainSerializer(domain, context=self.context).data
 
 
 class UserSessionSerializer(serializers.ModelSerializer):

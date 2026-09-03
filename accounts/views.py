@@ -111,6 +111,16 @@ class AccountsAuthSchema(AutoSchema):
         return super().get_responses(path, method)
 
 
+class ProfileSchema(AccountsAuthSchema):
+    def get_operation_id(self, path, method):
+        return f"accounts_profile_{self.view.action}"
+
+    def get_response_serializer(self, path, method):
+        if method.upper() == "GET" and getattr(self.view, "action", None) == "profile_detail":
+            return ProfileDetailSerializer()
+        return super().get_response_serializer(path, method)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class AuthViewSet(viewsets.ViewSet):
     schema = AccountsAuthSchema()
@@ -350,7 +360,7 @@ class AuthViewSet(viewsets.ViewSet):
 class ProfileViewset(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ProfileDetailSerializer
-    schema = AccountsAuthSchema()
+    schema = ProfileSchema()
 
     def get_object(self):
         return self.request.user
