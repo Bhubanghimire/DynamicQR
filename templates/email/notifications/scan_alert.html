@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:Arial,Helvetica,sans-serif;color:#222;">
+    <p>Hello {{ user.full_name|default:user.email }},</p>
+    <p>Your QR code <strong>{{ qr.name|default:qr.short_code }}</strong> was scanned on {{ scan_event.scanned_at }}.</p>
+</body>
+</html>

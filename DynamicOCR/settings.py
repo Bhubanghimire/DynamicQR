@@ -14,6 +14,7 @@ from pathlib import Path
 from decouple import config
 # import dj_database_url
 import environ
+from celery.schedules import crontab
 
 # Initialise environment variables
 env = environ.Env(
@@ -319,6 +320,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "subscriptions.tasks.process_due_subscription_renewals",
         "schedule": 300,
     }
+    ,
+    "send-weekly-notification-digest": {
+        "task": "accounts.tasks.send_weekly_notification_digest",
+        "schedule": crontab(minute=0, hour=9, day_of_week=6),
+    },
 }
 
 # DNS Settings

@@ -17,6 +17,7 @@ from analytics.services.scan_event_service import ScanEventService
 from analytics.services.qr_summary_service import QRAnalyticsService
 from analytics.services.analytics_time_service import AnalyticsTimeService
 from analytics.services.analytics_dimension_service import AnalyticsDimensionService
+from accounts.tasks import send_scan_notification
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,10 @@ class AnalyticsTracker:
                 QRAnalyticsService(self.context).update()
                 AnalyticsTimeService(self.context).update()
                 AnalyticsDimensionService(self.context).update()
+
+                transaction.on_commit(
+                    lambda: send_scan_notification.delay(self.context.scan_event.id)
+                )
 
         except Exception:
 

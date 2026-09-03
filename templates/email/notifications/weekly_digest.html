@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:Arial,Helvetica,sans-serif;color:#222;">
+    <p>Hello {{ user.full_name|default:user.email }},</p>
+    <p>Your weekly QR performance report for {{ start_date }} to {{ end_date }} is ready.</p>
+    <p>Total scans: <strong>{{ scan_count }}</strong></p>
+</body>
+</html>

@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:Arial,Helvetica,sans-serif;color:#222;">
+    <p>Hello {{ user.full_name|default:user.email }},</p>
+    <p>{{ message|default:"A security-related event requires your attention." }}</p>
+</body>
+</html>
