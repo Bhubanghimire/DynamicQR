@@ -716,8 +716,8 @@ class WorkspaceAPIView(APIView):
         workspace = self.get_object(request.user)
         if workspace is None:
             return Response(
-                {"message": "Workspace not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                {"data":{},"message": "Workspace not found."},
+                status=status.HTTP_200_OK,
             )
         serializer = WorkspaceSerializer(workspace)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
