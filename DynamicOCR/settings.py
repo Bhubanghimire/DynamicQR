@@ -148,8 +148,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
     "https://qrpack.vercel.app",
-    "https://qrpack.com",
-    "http://qrpack.com",
+    "https://qrpac.com",
+    "http://qrpac.com",
     "https://less-approach-farming-cultures.trycloudflare.com",
     "https://dev-qrnepal.vercel.app",
     "https://qrpac.vercel.app"
