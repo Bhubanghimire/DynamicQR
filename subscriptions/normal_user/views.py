@@ -596,7 +596,7 @@ class PaymentViewSet(viewsets.ViewSet):
                 "email": request_user.email,
                 "name": request_user.get_full_name() or request_user.username,
             },
-            "return_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
+            "return_url": f"{settings.FRONTEND_URL}/billings/{invoice.id}/?invoice={invoice.invoice_number}",
             "cancel_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
             "metadata": {
                 "invoice_id": str(invoice.id),
@@ -705,7 +705,7 @@ class PaymentViewSet(viewsets.ViewSet):
                     "email": request.user.email,
                     "name": request.user.get_full_name() or request.user.username,
                 },
-                "return_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
+                "return_url": f"{settings.FRONTEND_URL}/billings/{invoice.id}/?invoice={invoice.invoice_number}",
                 "cancel_url": f"{settings.FRONTEND_URL}/plans?invoice={invoice.invoice_number}",
                 "metadata": {
                     "invoice_id": str(invoice.id),
