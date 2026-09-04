@@ -729,7 +729,7 @@ class WorkspaceAPIView(APIView):
                 {"data":{},"message": "Workspace not found."},
                 status=status.HTTP_200_OK,
             )
-        serializer = WorkspaceSerializer(workspace)
+        serializer = WorkspaceSerializer(workspace, context={"request": request})
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
     def post(self, request):
