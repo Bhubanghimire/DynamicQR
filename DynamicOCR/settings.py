@@ -138,7 +138,7 @@ LOGIN_REDIRECT_URL = config(
 #     "https://dev-qrnepal.vercel.app/auth/google/callback",
 #     "https://qrnepal.vercel.app/auth/google/callback",
 # ]
-GOOGLE_FRONTEND_CALLBACK = "https://qrpac.vercel.app/auth/google/callback"
+GOOGLE_FRONTEND_CALLBACK = "https://qrpac.com/auth/google/callback"
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
 CORS_ALLOWED_ORIGINS = [
@@ -148,6 +148,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:4173",
     "https://cs-qrgen.vercel.app",
     "https://qrpack.vercel.app",
+    "https://qrpack.com",
     "https://less-approach-farming-cultures.trycloudflare.com",
     "https://dev-qrnepal.vercel.app",
     "https://qrpac.vercel.app"
@@ -165,6 +166,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://qrnepal.vercel.app",
     "https://dev-qrnepal.vercel.app",
     "https://qrpac.vercel.app",
+    "https://qrpac.com",
     "https://less-approach-farming-cultures.trycloudflare.com"
 ]
 
@@ -302,12 +304,12 @@ REFRESH_COOKIE_DOMAIN = config("REFRESH_COOKIE_DOMAIN", default=None)
 FRONTEND_URL = config("FRONTEND_URL", default=None)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
-CUSTOM_DOMAIN_CNAME_TARGET="qrapi.cogniasystems.com"
-BASE_DOMAIN="qrapi.cogniasystems.com"
+CUSTOM_DOMAIN_CNAME_TARGET="qrpac.com"
+BASE_DOMAIN="qrpac.com"
 DODO_PAYMENTS_API_KEY = config("DODO_API_KEY", default=None)
 # print(DODO_PAYMENTS_API_KEY)
 # DODO_SUBSCRIPTION_PRODUCT_ID = config("DODO_SUBSCRIPTION_PRODUCT_ID", default="pdt_0NmevMBs1Ny7Ol2lzyq3H")
-LETSENCRYPT_EMAIL = "admin@yourdomain.com"
+LETSENCRYPT_EMAIL = "bhubanghimire3130@gmail.com"
 
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=env("REDIS_URL"))
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=env("REDIS_URL"))
