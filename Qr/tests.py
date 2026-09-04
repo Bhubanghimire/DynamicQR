@@ -157,6 +157,56 @@ class QRCodeListTests(TestCase):
         self.assertEqual(response.data["data"][0]["domain_name"], "https://example.com")
 
 
+class QRAnalyticsDetailSummaryTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="analytics-user@example.com",
+            password="password123",
+            full_name="Analytics User",
+            phone="6666666666",
+        )
+
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Analytics Project",
+            description="Project for analytics testing",
+            status=True,
+        )
+
+        self.qr_category = ConfigCategory.objects.create(
+            name="QR Type",
+            description="QR type category",
+        )
+        self.qr_type = ConfigChoice.objects.create(
+            category=self.qr_category,
+            name="Website",
+            status=True,
+        )
+
+        self.qr_code = QRCode.objects.create(
+            name="Analytics QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            project=self.project,
+            status=True,
+        )
+
+    def test_detail_summary_returns_project_object(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            f"/api/v1.1/user/analytics/details/detail_summary/?qr_id={self.qr_code.id}&period=today"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["message"], "Analytics summary fetched successfully.")
+        self.assertEqual(response.data["data"]["qr"]["project"]["id"], str(self.project.id))
+        self.assertEqual(response.data["data"]["qr"]["project"]["name"], self.project.name)
+
+
 class CustomDomainLimitTests(TestCase):
     def setUp(self):
         self.client = APIClient()
