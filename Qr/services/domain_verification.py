@@ -306,7 +306,12 @@ class DomainVerificationService:
         # Step 4: Rewrite Nginx config with SSL (use the template with SSL directives)
         # We'll use the updated NginxConfigService that includes SSL in template
         # But we need to pass the SSL context (or just rely on the template)
-        ssl_nginx_result = nginx_service.write_config(context={'root': root_path})
+        ssl_nginx_result = nginx_service.write_config(
+            context={
+                'root': root_path,
+                'ssl_enabled': True,
+            }
+        )
         if not ssl_nginx_result['success']:
             domain_instance.status = CustomDomain.Status.NGINX_PENDING
             domain_instance.automation_error = ssl_nginx_result.get('error')
