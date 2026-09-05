@@ -21,7 +21,7 @@ server {
 
     server_name {{ domain }};
 
-    root {{ root }};
+    root /var/www/qrpac;
     index index.html;
 
     location / {
@@ -52,7 +52,7 @@ server {
         default_context = {
             'domain': self.domain,
             'generated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'root': getattr(settings, 'NGINX_FE_ROOT', f'/var/www/{self.domain}'),
+            'root':'/var/www/qrpac',
         }
 
         if context:
