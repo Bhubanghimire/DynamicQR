@@ -257,7 +257,7 @@ class DomainVerificationService:
         # Step 2: Write HTTP-only Nginx config FIRST
         nginx_service = NginxConfigService(domain_instance)
         # Use context to set root (ensure your domain root exists)
-        root_path = f"/var/www/{domain_instance.domain}"
+        root_path = f"/var/www/qrpac"
         nginx_result = nginx_service.write_config(context={'root': root_path})
         if not nginx_result['success']:
             domain_instance.status = CustomDomain.Status.NGINX_PENDING
