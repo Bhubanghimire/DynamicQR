@@ -33,7 +33,7 @@ class DomainVerificationService:
         self.resolver.timeout = 5
         self.resolver.lifetime = 10
 
-        self.cname_target = normalize_domain(settings.CUSTOM_DOMAIN_CNAME_TARGET)
+        self.expected_ip = settings.CUSTOM_DOMAIN_IP
 
         # Cache for DNS lookups
         self.dns_cache_ttl = 300  # 5 minutes
@@ -44,10 +44,9 @@ class DomainVerificationService:
             return domain
         return domain.strip().lower().rstrip(".")
 
-    def get_cname_records(self, domain: str, use_cache: bool = True) -> List[str]:
-        """Get CNAME records for a domain with caching"""
+    def get_a_records(self, domain: str, use_cache: bool = True) -> List[str]:
         domain = self.normalize_domain(domain)
-        cache_key = f"dns_cname_{domain}"
+        cache_key = f"dns_a_{domain}"
 
         if use_cache:
             cached = cache.get(cache_key)
@@ -57,32 +56,36 @@ class DomainVerificationService:
         try:
             answers = self.resolver.resolve(
                 domain,
-                "CNAME",
+                "A",
                 raise_on_no_answer=True
             )
 
             records = [
-                self.normalize_domain(str(answer.target))
+                answer.address
                 for answer in answers
             ]
 
-            # Cache results
             if use_cache:
-                cache.set(cache_key, records, self.dns_cache_ttl)
+                cache.set(
+                    cache_key,
+                    records,
+                    self.dns_cache_ttl
+                )
 
             return records
 
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-            logger.info(f"No CNAME record found for {domain}")
+        except (
+                dns.resolver.NoAnswer,
+                dns.resolver.NXDOMAIN,
+                dns.resolver.NoNameservers,
+                dns.resolver.Timeout,
+        ):
             return []
-        except dns.resolver.NoNameservers:
-            logger.error(f"No nameservers available for {domain}")
-            return []
-        except dns.resolver.Timeout:
-            logger.error(f"DNS timeout for {domain}")
-            return []
+
         except Exception as e:
-            logger.error(f"Error resolving CNAME for {domain}: {str(e)}")
+            logger.error(
+                f"Error resolving A record for {domain}: {e}"
+            )
             return []
 
     def get_txt_records(self, domain: str) -> List[str]:
@@ -116,11 +119,12 @@ class DomainVerificationService:
             logger.error(f"Error resolving TXT for {domain}: {str(e)}")
             return []
 
-    def verify_cname(self, domain: str) -> bool:
-        """Verify CNAME record matches expected target"""
+    def verify_a_record(self, domain: str) -> bool:
         domain = self.normalize_domain(domain)
-        records = self.get_cname_records(domain)
-        return self.cname_target in records
+
+        records = self.get_a_records(domain)
+
+        return settings.CUSTOM_DOMAIN_IP in records
 
     def verify_txt(self, domain: str, token: str) -> bool:
         """Verify TXT record contains verification token"""
@@ -180,9 +184,8 @@ class DomainVerificationService:
 
         # Try multiple verification methods
         verification_results = {
-            'cname': self.verify_cname(domain),
-            'txt': self.verify_txt(domain, token),
-            'http': self.verify_http(domain)
+            'a': self.verify_a_record(domain),
+            'http': self.verify_http(domain),
         }
 
         # Consider verified if any method succeeds
@@ -387,7 +390,7 @@ class DomainVerificationService:
     def clear_dns_cache(self, domain: Optional[str] = None):
         """Clear DNS cache for a specific domain or all domains"""
         if domain:
-            cache.delete(f"dns_cname_{domain}")
+            cache.delete(f"dns_a_{domain}")
             cache.delete(f"dns_txt_{domain}")
         else:
             # Clear all domain caches (use with caution)
