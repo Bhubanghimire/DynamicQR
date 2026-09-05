@@ -241,82 +241,84 @@ class DomainVerificationService:
             'results': results
         }
 
+    # services/domain_verification.py
+
     def verify_and_activate_domain(self, domain_instance):
-        """Full verification and activation pipeline"""
-
-        # Step 1: DNS Verification (your existing method)
+        # Step 1: DNS verification (keep as is)
         dns_result = self.verify_domain(domain_instance)
-
         if not dns_result['success']:
             return dns_result
 
-        # Update status to DNS verified
+        # Update status
         domain_instance.status = CustomDomain.Status.VERIFIED
         domain_instance.dns_verified_at = timezone.now()
         domain_instance.save()
 
-        # Step 2: SSL Provisioning
-        ssl_service = SSLProvisioningService(domain_instance.domain)
-        ssl_result = ssl_service.provision_certificate()
+        # Step 2: Write HTTP-only Nginx config FIRST
+        nginx_service = NginxConfigService(domain_instance)
+        # Use context to set root (ensure your domain root exists)
+        root_path = f"/var/www/{domain_instance.domain}"
+        nginx_result = nginx_service.write_config(context={'root': root_path})
+        if not nginx_result['success']:
+            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.automation_error = nginx_result.get('error')
+            domain_instance.save()
+            return {'success': False, 'step': 'nginx_write', 'error': nginx_result.get('error')}
 
+        # Enable and reload Nginx (HTTP now serves the domain)
+        enable_result = nginx_service.enable_site()
+        if not enable_result['success']:
+            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.automation_error = enable_result.get('error')
+            domain_instance.save()
+            return {'success': False, 'step': 'nginx_enable', 'error': enable_result.get('error')}
+
+        reload_result = NginxConfigService.full_nginx_reload()
+        if not reload_result['success']:
+            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.automation_error = reload_result.get('error')
+            domain_instance.save()
+            return {'success': False, 'step': 'nginx_reload', 'error': reload_result.get('error')}
+
+        # Step 3: Provision SSL using webroot
+        ssl_service = SSLProvisioningService(domain_instance.domain)
+        ssl_result = ssl_service.provision_certificate_webroot(root_path)
         if not ssl_result['success']:
             domain_instance.status = CustomDomain.Status.SSL_PENDING
-            domain_instance.automation_error = ssl_result.get('error', 'SSL provisioning failed')
+            domain_instance.automation_error = ssl_result.get('error')
             domain_instance.save()
             return {
                 'success': False,
                 'step': 'ssl_provisioning',
-                'error': ssl_result.get('error', 'SSL provisioning failed'),
-                'ssl_details': ssl_result
+                'error': ssl_result.get('error')
             }
 
         # Update SSL fields
         domain_instance.ssl_verified = True
         domain_instance.ssl_verified_at = timezone.now()
         domain_instance.ssl_issued_at = timezone.now()
-        domain_instance.ssl_expires_at = ssl_result.get('expires_at')
-        domain_instance.status = CustomDomain.Status.SSL_PENDING
+        domain_instance.ssl_expires_at = ssl_result.get('expires_at')  # you may need to parse from cert output
         domain_instance.save()
 
-        # Step 3: Nginx Configuration
-        nginx_service = NginxConfigService(domain_instance)
-        nginx_result = nginx_service.write_config()
-
-        if not nginx_result['success']:
+        # Step 4: Rewrite Nginx config with SSL (use the template with SSL directives)
+        # We'll use the updated NginxConfigService that includes SSL in template
+        # But we need to pass the SSL context (or just rely on the template)
+        ssl_nginx_result = nginx_service.write_config(context={'root': root_path})
+        if not ssl_nginx_result['success']:
             domain_instance.status = CustomDomain.Status.NGINX_PENDING
-            domain_instance.automation_error = nginx_result.get('error', 'Nginx config failed')
+            domain_instance.automation_error = ssl_nginx_result.get('error')
             domain_instance.save()
-            return {
-                'success': False,
-                'step': 'nginx_configuration',
-                'error': nginx_result.get('error', 'Nginx config failed')
-            }
+            return {'success': False, 'step': 'nginx_ssl_write', 'error': ssl_nginx_result.get('error')}
 
-        # Enable site
-        enable_result = nginx_service.enable_site()
-        if not enable_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
-            domain_instance.automation_error = enable_result.get('error', 'Nginx enable failed')
-            domain_instance.save()
-            return {
-                'success': False,
-                'step': 'nginx_enable',
-                'error': enable_result.get('error', 'Nginx enable failed')
-            }
-
-        # Reload Nginx
+        # Reload Nginx again (now with SSL)
         reload_result = NginxConfigService.full_nginx_reload()
         if not reload_result['success']:
             domain_instance.status = CustomDomain.Status.NGINX_PENDING
-            domain_instance.automation_error = reload_result.get('error', 'Nginx reload failed')
+            domain_instance.automation_error = reload_result.get('error')
             domain_instance.save()
-            return {
-                'success': False,
-                'step': 'nginx_reload',
-                'error': reload_result.get('error', 'Nginx reload failed')
-            }
+            return {'success': False, 'step': 'nginx_reload_ssl', 'error': reload_result.get('error')}
 
-        # Step 4: Mark as Active
+        # Step 5: Mark as Active
         domain_instance.status = CustomDomain.Status.ACTIVE
         domain_instance.activated_at = timezone.now()
         domain_instance.nginx_configured_at = timezone.now()
@@ -324,10 +326,9 @@ class DomainVerificationService:
         domain_instance.nginx_config_path = nginx_service.config_path
         domain_instance.save()
 
-
         return {
             'success': True,
-            'message': f'Domain {domain_instance.domain} is now active!',
+            'message': f'Domain {domain_instance.domain} is now active with SSL!',
             'domain': domain_instance.domain,
             'status': domain_instance.status,
             'ssl_verified': domain_instance.ssl_verified,

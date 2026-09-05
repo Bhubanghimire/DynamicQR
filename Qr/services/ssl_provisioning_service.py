@@ -156,3 +156,35 @@ class SSLProvisioningService:
                 'success': False,
                 'error': str(e)
             }
+
+    # services/ssl_provisioning_service.py
+
+    def provision_certificate_webroot(self, webroot_path: str) -> dict:
+        """
+        Provision SSL certificate using Certbot's webroot plugin.
+        webroot_path: absolute path to the domain's root (where index.html lives)
+        """
+        if not self.certbot_path:
+            return {'success': False, 'error': 'Certbot not found'}
+
+        cert_path = f"/etc/letsencrypt/live/{self.domain}/fullchain.pem"
+        if os.path.exists(cert_path):
+            return {'success': True, 'cert_path': cert_path, 'message': 'Certificate already exists'}
+
+        cmd = [
+            self.certbot_path, 'certonly', '--webroot',
+            '-w', webroot_path,
+            '-d', self.domain,
+            '--non-interactive', '--agree-tos',
+            '--email', self.email,
+            '--keep-until-expiring'
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode == 0 and os.path.exists(cert_path):
+                return {'success': True, 'cert_path': cert_path}
+            else:
+                return {'success': False, 'error': result.stderr or 'Certbot failed'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
