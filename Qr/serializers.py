@@ -37,12 +37,33 @@ class StatusSummarySerializer(serializers.ModelSerializer):
 class ProjectSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
     qr_count = serializers.IntegerField(read_only=True)
+    access_level = serializers.SerializerMethodField()
     # status = StatusSummarySerializer(read_only=True)
 
     class Meta:
         model = Project
         # fields = "__all__"
         exclude = ["is_deleted", "deleted_at"]
+
+    def get_access_level(self, obj):
+        request = self.context.get("request")
+        if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
+            return None
+
+        if obj.owner_id == request.user.id:
+            return "all"
+
+        project_content_type = ContentType.objects.get_for_model(Project)
+        project_permission = SharePermissions.objects.filter(
+            user_id=request.user,
+            content_type=project_content_type,
+            resource_id=obj.id,
+            is_deleted=False,
+        ).select_related("role").first()
+        if project_permission is None:
+            return None
+
+        return (project_permission.role.name or "").strip().lower() or None
 
     # def create(self, validated_data):
     #     validated_data["status"] = True
