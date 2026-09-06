@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 import os
 from pathlib import Path
+
+from celery.concurrency import custom
 from decouple import config
 # import dj_database_url
 import environ
@@ -349,5 +351,4 @@ DODO_PRODUCT_TAX_CATEGORY = config(
     "DODO_PRODUCT_TAX_CATEGORY",
     default="saas",
 )
-
-CUSTOM_DOMAIN_IP = "64.227.156.219"
+CUSTOM_DOMAIN_IP = os.environ.get('CUSTOM_DOMAIN_IP', '')
