@@ -1,0 +1,6 @@
+Hello {{ user.full_name|default:user.email }},
+
+{{ message|default:"A security-related event requires your attention." }}
+
+Regards,
+DynamicQR

@@ -2,7 +2,7 @@ from django import forms
 from django.db import models
 from django.contrib import admin
 
-from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User
+from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, Workspace
 
 
 @admin.register(User)
@@ -60,3 +60,8 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):
         "security_alerts",
     )
     ordering = ("user__email",)
+
+
+@admin.register(Workspace)
+class WorkspaceAdmin(admin.ModelAdmin):
+    list_display = ['id',"name"]

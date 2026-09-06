@@ -111,6 +111,16 @@ class AccountsAuthSchema(AutoSchema):
         return super().get_responses(path, method)
 
 
+class ProfileSchema(AccountsAuthSchema):
+    def get_operation_id(self, path, method):
+        return f"accounts_profile_{self.view.action}"
+
+    def get_response_serializer(self, path, method):
+        if method.upper() == "GET" and getattr(self.view, "action", None) == "profile_detail":
+            return ProfileDetailSerializer()
+        return super().get_response_serializer(path, method)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class AuthViewSet(viewsets.ViewSet):
     schema = AccountsAuthSchema()
@@ -350,7 +360,7 @@ class AuthViewSet(viewsets.ViewSet):
 class ProfileViewset(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ProfileDetailSerializer
-    schema = AccountsAuthSchema()
+    schema = ProfileSchema()
 
     def get_object(self):
         return self.request.user
@@ -406,7 +416,7 @@ class ProfileViewset(viewsets.GenericViewSet):
         serializer = self.get_serializer(preference)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["POST"], url_path="notification-preferences")
+    @action(detail=False, methods=["POST"], url_path="notification-preference")
     def update_notification_preferences(self, request):
         preference, _ = NotificationPreference.objects.get_or_create(
             user=request.user
@@ -716,10 +726,10 @@ class WorkspaceAPIView(APIView):
         workspace = self.get_object(request.user)
         if workspace is None:
             return Response(
-                {"message": "Workspace not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                {"data":{},"message": "Workspace not found."},
+                status=status.HTTP_200_OK,
             )
-        serializer = WorkspaceSerializer(workspace)
+        serializer = WorkspaceSerializer(workspace, context={"request": request})
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
     def post(self, request):

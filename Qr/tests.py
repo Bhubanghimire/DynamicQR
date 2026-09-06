@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from Qr.models import Invitations, Project
 from Qr.models import QRCode, QRScanSetting
+from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
 
 
@@ -154,3 +155,99 @@ class QRCodeListTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["data"])
         self.assertEqual(response.data["data"][0]["domain_name"], "https://example.com")
+
+
+class QRAnalyticsDetailSummaryTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="analytics-user@example.com",
+            password="password123",
+            full_name="Analytics User",
+            phone="6666666666",
+        )
+
+        self.project = Project.objects.create(
+            owner=self.user,
+            name="Analytics Project",
+            description="Project for analytics testing",
+            status=True,
+        )
+
+        self.qr_category = ConfigCategory.objects.create(
+            name="QR Type",
+            description="QR type category",
+        )
+        self.qr_type = ConfigChoice.objects.create(
+            category=self.qr_category,
+            name="Website",
+            status=True,
+        )
+
+        self.qr_code = QRCode.objects.create(
+            name="Analytics QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            project=self.project,
+            status=True,
+        )
+
+    def test_detail_summary_returns_project_object(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            f"/api/v1.1/user/analytics/details/detail_summary/?qr_id={self.qr_code.id}&period=today"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["message"], "Analytics summary fetched successfully.")
+        self.assertEqual(response.data["data"]["qr"]["project"]["id"], str(self.project.id))
+        self.assertEqual(response.data["data"]["qr"]["project"]["name"], self.project.name)
+
+
+class CustomDomainLimitTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="domain-limit@example.com",
+            password="password123",
+            full_name="Domain Limit User",
+            phone="5555555555",
+        )
+        self.free_package = Package.objects.create(
+            title="No Domains",
+            description="Package without custom domains",
+            is_free=True,
+            is_active=True,
+            display_order=0,
+        )
+        self.free_plan = PackagePlan.objects.create(
+            package=self.free_package,
+            duration=None,
+            price=0,
+            currency="USD",
+            max_qrs=5,
+            max_scans=25,
+            max_team_members=0,
+            max_bulk_upload=10,
+            max_domain_add=0,
+            is_active=True,
+        )
+        Subscription.get_or_create_default_subscription(self.user)
+
+    def test_domain_create_respects_package_limit(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            "/api/v1.1/user/domains/",
+            {"domain": "example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["message"], "Custom domain limit reached for your package.")
+        self.assertEqual(response.data["data"]["limit"], 0)

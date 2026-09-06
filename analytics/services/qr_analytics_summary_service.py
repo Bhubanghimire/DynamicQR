@@ -192,13 +192,19 @@ class QRAnalyticsSummaryService:
     def get_qr_information(cls, qr):
         if qr is None:
             return None
+        project = None
+        if qr.project:
+            project = {
+                "id": qr.project.id,
+                "name": qr.project.name,
+            }
         return {
             "id": qr.id,
             "name": qr.name,
             "type": qr.qr_type.name if qr.qr_type else None,
             "created_at": qr.created_at,
             "last_scanned_at": cls._get_last_scanned_at([qr.id]),
-            "project": qr.project_id,
+            "project": project,
         }
 
     @classmethod

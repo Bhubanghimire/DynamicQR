@@ -1,0 +1,7 @@
+Hello {{ user.full_name|default:user.email }},
+
+Your weekly QR performance report for {{ start_date }} to {{ end_date }} is ready.
+Total scans: {{ scan_count }}
+
+Regards,
+DynamicQR

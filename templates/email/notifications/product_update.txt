@@ -1,0 +1,6 @@
+Hello {{ user.full_name|default:user.email }},
+
+{{ message|default:"We have a product update for you." }}
+
+Regards,
+DynamicQR

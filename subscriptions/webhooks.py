@@ -312,7 +312,12 @@ def _extract_billing_address(event_data, payment_method=None):
     return {}
 
 
-def _ensure_paid_invoice_for_subscription_renewal(subscription, payment_id=None, invoice_number=None, metadata=None):
+def _find_existing_invoice_for_subscription_renewal(
+    subscription,
+    payment_id=None,
+    invoice_number=None,
+    metadata=None,
+):
     metadata = metadata or {}
 
     if invoice_number:
@@ -320,29 +325,71 @@ def _ensure_paid_invoice_for_subscription_renewal(subscription, payment_id=None,
         if invoice:
             return invoice
 
-    invoice = Invoice.objects.create(
-        user=subscription.user,
-        subscription=subscription,
-        package_plan=subscription.package_plan,
-        payment_method=subscription.payment_method,
-        amount=subscription.price,
-        tax=0,
-        total=subscription.price,
-        currency=subscription.currency,
-        due_date=timezone.now(),
-        status=Invoice.Status.PENDING,
-        billing_address=getattr(subscription.payment_method, "billing_address", {}) or {},
-        metadata={
-            **metadata,
-            "source": "subscription_renewal",
+    if payment_id:
+        invoice = Invoice.objects.filter(dodo_payment_id=payment_id).first()
+        if invoice:
+            return invoice
+
+    if subscription.dodo_subscription_id:
+        invoice = Invoice.objects.filter(
+            subscription=subscription,
+            dodo_subscription_id=subscription.dodo_subscription_id,
+        ).first()
+        if invoice:
+            return invoice
+
+    invoice = (
+        Invoice.objects.filter(
+            user=subscription.user,
+            package_plan=subscription.package_plan,
+        )
+        .exclude(status=Invoice.Status.CANCELLED)
+        .order_by("-issued_at", "-created_at")
+        .first()
+    )
+    if invoice:
+        return invoice
+
+    return None
+
+def _ensure_paid_invoice_for_subscription_renewal(subscription, payment_id=None, invoice_number=None, metadata=None):
+    invoice = _find_existing_invoice_for_subscription_renewal(
+        subscription,
+        payment_id=payment_id,
+        invoice_number=invoice_number,
+        metadata=metadata,
+    )
+    if invoice is None:
+        raise Invoice.DoesNotExist(
+            f"No existing invoice found for subscription {subscription.id}"
+        )
+
+    if not invoice.user_id and subscription.user_id:
+        invoice.user = subscription.user
+
+    if not invoice.subscription_id:
+        invoice.subscription = subscription
+
+    if not invoice.payment_method_id and subscription.payment_method_id:
+        invoice.payment_method = subscription.payment_method
+
+    if payment_id and not invoice.dodo_payment_id:
+        invoice.dodo_payment_id = payment_id
+
+    if subscription.dodo_subscription_id and not invoice.dodo_subscription_id:
+        invoice.dodo_subscription_id = subscription.dodo_subscription_id
+
+    if not invoice.metadata:
+        invoice.metadata = {}
+
+    invoice.metadata.update(
+        {
+            **(metadata or {}),
+            "source": invoice.metadata.get("source", "subscription_renewal"),
             "auto_renew": True,
             "billing_duration_days": subscription.billing_duration_days,
-        },
+        }
     )
-    if payment_id:
-        invoice.dodo_payment_id = payment_id
-    if subscription.dodo_subscription_id:
-        invoice.dodo_subscription_id = subscription.dodo_subscription_id
     invoice.save()
     return invoice
 
@@ -709,7 +756,8 @@ def handle_subscription_renewed(event_data):
             # Update invoice
             invoice.status = Invoice.Status.PAID
             invoice.paid_at = timezone.now()
-            invoice.dodo_payment_id = payment_id
+            if payment_id:
+                invoice.dodo_payment_id = payment_id
             if subscription_id:
                 invoice.dodo_subscription_id = subscription_id
             invoice.save()

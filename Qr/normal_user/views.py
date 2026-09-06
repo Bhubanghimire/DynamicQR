@@ -9,17 +9,24 @@ import secrets
 from datetime import timedelta
 from django.template.loader import render_to_string
 from django.http import JsonResponse
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
 from Qr.services.ssl_provisioning_service import SSLProvisioningService
 
-from Qr.tasks import process_qr_import, get_importer, load_import_workbook_rows, verify_and_activate_domain_async
+from Qr.tasks import (
+    process_qr_import,
+    get_bulk_upload_limit,
+    get_importer,
+    get_qr_limit,
+    load_import_workbook_rows,
+    verify_and_activate_domain_async,
+)
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
@@ -39,7 +46,75 @@ from Qr.serializers import (
 )
 from DynamicOCR.pagination import CustomPagination
 from analytics.task import track_scan
+from subscriptions.models import Subscription
 from system.models import ConfigChoice
+
+
+def _build_limit_response(message, limit, used, requested=1):
+    remaining = None if limit is None else max(limit - used, 0)
+    return Response(
+        {
+            "data": {
+                "limit": limit,
+                "used": used,
+                "remaining": remaining,
+                "requested": requested,
+            },
+            "message": message,
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _enforce_qr_limit(user, requested=1):
+    qr_limit = get_qr_limit(user)
+    if qr_limit is None:
+        return None
+
+    used = QRCode.objects.filter(
+        created_by=user,
+        is_deleted=False,
+    ).count()
+    if used + requested > qr_limit:
+        return _build_limit_response(
+            "QR code limit reached for your package.",
+            qr_limit,
+            used,
+            requested,
+        )
+
+    return None
+
+
+def _get_domain_add_limit(user):
+    subscription = Subscription.get_usage_subscription_for_user(user)
+    if not subscription:
+        return 0
+
+    if subscription.domain_add_limit is not None:
+        return subscription.domain_add_limit
+
+    package_plan = getattr(subscription, "package_plan", None)
+    return package_plan.max_domain_add if package_plan else 0
+
+
+def _enforce_domain_add_limit(user):
+    domain_add_limit = _get_domain_add_limit(user)
+    if domain_add_limit is None:
+        return None
+
+    used = CustomDomain.objects.filter(
+        user=user,
+        is_deleted=False,
+    ).count()
+    if used + 1 > domain_add_limit:
+        return _build_limit_response(
+            "Custom domain limit reached for your package.",
+            domain_add_limit,
+            used,
+        )
+
+    return None
 
 
 class ProjectSchema(PaginatedAutoSchema):
@@ -256,6 +331,23 @@ class CustomDomainSchema(PaginatedAutoSchema):
             return None
         return super().get_request_body(path, method)
 
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if getattr(self.view, "action", None) == "list":
+            params.append(
+                {
+                    "name": "status",
+                    "required": False,
+                    "in": "query",
+                    "description": "Filter custom domains by status. Use one of the `CustomDomain.Status` values.",
+                    "schema": {
+                        "type": "string",
+                        "enum": [choice[0] for choice in CustomDomain.Status.choices],
+                    },
+                }
+            )
+        return params
+
     def get_operation(self, path, method):
         operation = super().get_operation(path, method)
         if getattr(self.view, "action", None) == "verify_by_token":
@@ -322,7 +414,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(owner=self.request.user)
+        project_content_type = ContentType.objects.get_for_model(Project)
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        return queryset.filter(
+            Q(owner=self.request.user) | Q(id__in=shared_project_ids)
+        )
 
     def get_search_fields(self):
         if self.action == "qrs":
@@ -432,19 +533,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="qrs")
     def qrs(self, request, *args, **kwargs):
         project = self.get_object()
-        content_type = ContentType.objects.get_for_model(QRCode)
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
         shared_qr_ids = SharePermissions.objects.filter(
             user_id=request.user,
-            content_type=content_type,
+            content_type=qr_content_type,
             is_deleted=False,
             resource_id__isnull=False,
         ).values_list("resource_id", flat=True)
+
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=request.user,
+            content_type=project_content_type,
+            resource_id=project.id,
+            is_deleted=False,
+        ).exists()
 
         qrcodes = QRCode.objects.filter(
             project=project,
             is_deleted=False,
         ).filter(
-            Q(created_by=request.user) | Q(id__in=shared_qr_ids)
+            Q(created_by=request.user)
+            | Q(id__in=shared_qr_ids)
+            | (Q(project=project) if shared_project_ids else Q(pk__in=[]))
         ).order_by("name")
         qrcodes = self.filter_queryset(qrcodes)
         paginator = CustomPagination()
@@ -473,7 +585,26 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "scan":
             return queryset
-        return queryset.filter(created_by=self.request.user)
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
+        shared_qr_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=qr_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        return queryset.filter(
+            Q(created_by=self.request.user)
+            | Q(id__in=shared_qr_ids)
+            | Q(project_id__in=shared_project_ids)
+        )
 
     def _get_client_ip(self, request):
         x_real_ip = request.META.get("HTTP_X_REAL_IP")
@@ -542,6 +673,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
                 {"data": serializer.errors, "message": "Validation error."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        limit_response = _enforce_qr_limit(request.user)
+        if limit_response is not None:
+            return limit_response
+
         qr_code = serializer.save()
         return Response(
             {"data": self.get_serializer(qr_code).data, "message": "QR code created successfully."},
@@ -727,6 +863,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="duplicate")
     def duplicate(self, request, *args, **kwargs):
         source_qr = self.get_object()
+        limit_response = _enforce_qr_limit(request.user)
+        if limit_response is not None:
+            return limit_response
+
         serializer = self.get_serializer(
             data=request.data,
             context={**self.get_serializer_context(), "source_qr": source_qr},
@@ -1557,6 +1697,37 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
+        bulk_upload_limit = get_bulk_upload_limit(request.user)
+        temp_import_job = QRImportJob(
+            user=request.user,
+            project=project,
+            qr_type=qr_type,
+            file=file,
+            design_data=design_data,
+        )
+
+        try:
+            headers, data_rows = load_import_workbook_rows(
+                temp_import_job,
+                max_rows=bulk_upload_limit,
+            )
+        except ValueError as exc:
+            return Response(
+                {
+                    "data": {"error": str(exc)},
+                    "message": "Import failed.",
+                    "status": "error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        finally:
+            if hasattr(file, "seek"):
+                file.seek(0)
+
+        limit_response = _enforce_qr_limit(request.user, requested=len(data_rows))
+        if limit_response is not None:
+            return limit_response
+
         # Get PENDING status from ConfigChoice
 
         pending_status = ConfigChoice.objects.get(
@@ -1654,6 +1825,8 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
+        bulk_upload_limit = get_bulk_upload_limit(request.user)
+
         pending_status = ConfigChoice.objects.get(
             id="f1f4c191-dadd-43a3-8cba-b021485c418c",
         )
@@ -1668,7 +1841,14 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         )
 
         try:
-            headers, data_rows = load_import_workbook_rows(import_job)
+            headers, data_rows = load_import_workbook_rows(
+                import_job,
+                max_rows=bulk_upload_limit,
+            )
+            limit_response = _enforce_qr_limit(request.user, requested=len(data_rows))
+            if limit_response is not None:
+                return limit_response
+
             importer = get_importer(import_job.qr_type)
             importer.validate_headers(headers)
         except Exception as exc:
@@ -1747,14 +1927,33 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return CustomDomain.objects.filter(
+        queryset = CustomDomain.objects.filter(
             user=self.request.user,
             is_deleted=False
         )
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            valid_statuses = {choice[0] for choice in CustomDomain.Status.choices}
+            normalized_status = status_param.strip().lower()
+            if normalized_status not in valid_statuses:
+                raise ValidationError(
+                    {
+                        "status": (
+                            "Invalid status. Use one of: "
+                            + ", ".join(sorted(valid_statuses))
+                        )
+                    }
+                )
+            queryset = queryset.filter(status=normalized_status)
+        return queryset
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         """Create a new custom domain and start verification"""
+        limit_response = _enforce_domain_add_limit(request.user)
+        if limit_response is not None:
+            return limit_response
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1847,6 +2046,18 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             'data': result,
             'message': result.get('message', 'Domain deactivated successfully')
         })
+
+    @action(detail=True, methods=['post'])
+    def make_default(self, request, pk=None):
+        domain = self.get_object()
+        CustomDomain.objects.filter(user=self.request.user).update(is_default=False)
+        domain.is_default = True
+        domain.save()
+
+        return Response({'data': {},
+                'message': 'Default domain was made successfully.',
+            }, status=200)
+
 
     @action(detail=False, methods=['get'])
     def status(self, request):

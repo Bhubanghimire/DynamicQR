@@ -1,0 +1,6 @@
+Hello {{ user.full_name|default:user.email }},
+
+Your QR code "{{ qr.name|default:qr.short_code }}" was scanned on {{ scan_event.scanned_at }}.
+
+Regards,
+DynamicQR
