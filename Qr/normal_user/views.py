@@ -2252,7 +2252,7 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
                         '1. Check your DNS CNAME record:',
                         f'   - Type: CNAME',
                         f'   - Host: {domain.domain}',
-                        f'   - Value: qrapi.cogniasystems.com',
+                        f'   - Value: {settings.CUSTOM_DOMAIN_CNAME_TARGET}',
                         '2. Wait for DNS propagation (up to 24 hours)',
                         '3. Try again after propagation',
                         '4. If using Cloudflare, ensure proxy is disabled (grey cloud)'

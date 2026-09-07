@@ -34,6 +34,9 @@ class DomainVerificationService:
         self.resolver.lifetime = 10
 
         self.expected_ip = settings.CUSTOM_DOMAIN_IP
+        self.expected_cname = self.normalize_domain(
+            getattr(settings, "CUSTOM_DOMAIN_CNAME_TARGET", "")
+        )
 
         # Cache for DNS lookups
         self.dns_cache_ttl = 300  # 5 minutes
@@ -119,12 +122,51 @@ class DomainVerificationService:
             logger.error(f"Error resolving TXT for {domain}: {str(e)}")
             return []
 
-    def verify_a_record(self, domain: str) -> bool:
+    def get_cname_records(self, domain: str, use_cache: bool = True) -> List[str]:
+        """Get CNAME records for a domain"""
         domain = self.normalize_domain(domain)
+        cache_key = f"dns_cname_{domain}"
 
-        records = self.get_a_records(domain)
+        if use_cache:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
 
-        return settings.CUSTOM_DOMAIN_IP in records
+        try:
+            answers = self.resolver.resolve(
+                domain,
+                "CNAME",
+                raise_on_no_answer=True,
+            )
+
+            records = [
+                self.normalize_domain(str(answer.target).rstrip("."))
+                for answer in answers
+            ]
+
+            if use_cache:
+                cache.set(cache_key, records, self.dns_cache_ttl)
+
+            return records
+
+        except (
+            dns.resolver.NoAnswer,
+            dns.resolver.NXDOMAIN,
+            dns.resolver.NoNameservers,
+            dns.resolver.Timeout,
+        ):
+            return []
+        except Exception as e:
+            logger.error(f"Error resolving CNAME for {domain}: {str(e)}")
+            return []
+
+    def verify_cname_record(self, domain: str) -> bool:
+        domain = self.normalize_domain(domain)
+        if not self.expected_cname:
+            return False
+
+        records = self.get_cname_records(domain)
+        return self.expected_cname in records
 
     def verify_txt(self, domain: str, token: str) -> bool:
         """Verify TXT record contains verification token"""
@@ -135,9 +177,9 @@ class DomainVerificationService:
         return any(expected in record for record in records)
 
     def verify_http(self, domain: str) -> bool:
-        """Verify domain through HTTP endpoint"""
+        """Verify the domain serves the frontend over HTTP/HTTPS"""
         domain = self.normalize_domain(domain)
-        verification_path = "/.well-known/domain-verify"
+        verification_path = "/"
 
         try:
             # Try HTTPS first
@@ -145,16 +187,14 @@ class DomainVerificationService:
             response = requests.get(url, timeout=5, verify=True)
 
             if response.status_code == 200:
-                data = response.json()
-                return data.get('verified', False)
+                return True
 
             # Fallback to HTTP
             url = f"http://{domain}{verification_path}"
             response = requests.get(url, timeout=5)
 
             if response.status_code == 200:
-                data = response.json()
-                return data.get('verified', False)
+                return True
 
             return False
 
@@ -184,12 +224,12 @@ class DomainVerificationService:
 
         # Try multiple verification methods
         verification_results = {
-            'a': self.verify_a_record(domain),
+            'cname': self.verify_cname_record(domain),
             'http': self.verify_http(domain),
         }
 
-        # Consider verified if any method succeeds
-        is_verified = any(verification_results.values())
+        # Require both DNS CNAME and frontend HTTP reachability
+        is_verified = all(verification_results.values())
 
         if is_verified:
             domain_instance.status = CustomDomain.Status.ACTIVE
@@ -210,7 +250,7 @@ class DomainVerificationService:
 
             return {
                 'success': False,
-                'message': 'DNS verification failed. Please check your DNS records.',
+                'message': 'DNS verification failed. Please check your CNAME record and frontend response.',
                 'domain': domain,
                 'attempts': domain_instance.verification_attempts,
                 'verification_results': verification_results
@@ -396,6 +436,7 @@ class DomainVerificationService:
         """Clear DNS cache for a specific domain or all domains"""
         if domain:
             cache.delete(f"dns_a_{domain}")
+            cache.delete(f"dns_cname_{domain}")
             cache.delete(f"dns_txt_{domain}")
         else:
             # Clear all domain caches (use with caution)

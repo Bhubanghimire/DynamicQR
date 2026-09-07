@@ -923,7 +923,7 @@ class CustomDomainSerializer(serializers.ModelSerializer):
                 'host': obj.domain,
                 'value': settings.CUSTOM_DOMAIN_CNAME_TARGET,
                 'ttl': 3600,
-                'purpose': 'Required - Points domain to our servers'
+                'purpose': 'Required - Points the domain to the frontend gateway'
             },
             'txt_record': {
                 'type': 'TXT',
@@ -934,7 +934,8 @@ class CustomDomainSerializer(serializers.ModelSerializer):
             },
 
             'verification_url': obj.get_verification_url(),
-            'dns_propagation_time': 'Up to 24 hours'
+            'dns_propagation_time': 'Up to 24 hours',
+            'frontend_note': 'The custom domain serves the frontend application, not the API server.'
         }
 
     def get_verification_url(self, obj):
