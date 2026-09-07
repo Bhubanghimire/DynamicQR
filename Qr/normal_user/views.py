@@ -30,6 +30,8 @@ from Qr.tasks import (
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
+from django.db.models import IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
     QRImportJob, CustomDomain, QRSchedule
 from Qr.serializers import (
@@ -410,11 +412,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
     serializer_class = ProjectSerializer
-    queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("-created_at")
+    queryset = Project.objects.all()
 
     def get_queryset(self):
         queryset = super().get_queryset()
         project_content_type = ContentType.objects.get_for_model(Project)
+        accepted_people_count = SharePermissions.objects.filter(
+            content_type=project_content_type,
+            resource_id=OuterRef("pk"),
+            is_deleted=False,
+        ).values("resource_id").annotate(
+            total=Count("id", distinct=True)
+        ).values("total")[:1]
+
+        queryset = queryset.annotate(
+            qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False)),
+            accepted_people_count=Coalesce(
+                Subquery(accepted_people_count, output_field=IntegerField()),
+                Value(0),
+            ),
+        )
         shared_project_ids = SharePermissions.objects.filter(
             user_id=self.request.user,
             content_type=project_content_type,
@@ -423,7 +440,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(
             Q(owner=self.request.user) | Q(id__in=shared_project_ids)
-        )
+        ).order_by("-created_at")
 
     def get_search_fields(self):
         if self.action == "qrs":

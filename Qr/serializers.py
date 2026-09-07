@@ -37,6 +37,7 @@ class StatusSummarySerializer(serializers.ModelSerializer):
 class ProjectSerializer(serializers.ModelSerializer):
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
     qr_count = serializers.IntegerField(read_only=True)
+    accepted_people_count = serializers.IntegerField(read_only=True)
     access_level = serializers.SerializerMethodField()
     # status = StatusSummarySerializer(read_only=True)
 
