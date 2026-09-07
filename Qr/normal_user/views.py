@@ -598,10 +598,8 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return super().get_permissions()
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if self.action == "scan":
-            return queryset
+    def _get_accessible_qr_queryset(self, include_deleted=False):
+        queryset = QRCode.objects.get_deleted() if include_deleted else QRCode.objects.all()
         qr_content_type = ContentType.objects.get_for_model(QRCode)
         project_content_type = ContentType.objects.get_for_model(Project)
 
@@ -622,6 +620,12 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             | Q(id__in=shared_qr_ids)
             | Q(project_id__in=shared_project_ids)
         )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action == "scan":
+            return queryset
+        return self._get_accessible_qr_queryset(include_deleted=False)
 
     def _get_client_ip(self, request):
         x_real_ip = request.META.get("HTTP_X_REAL_IP")
@@ -896,6 +900,89 @@ class QRCodeViewSet(viewsets.ModelViewSet):
                 "message": "QR code duplicated successfully.",
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class QRRecycleBinViewSet(viewsets.ViewSet):
+    schema = ProjectSchema()
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    filter_backends = [SearchFilter]
+    search_fields = ["name", "qr_type__name"]
+
+    def _get_accessible_deleted_qr_queryset(self):
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
+        shared_qr_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=qr_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        return QRCode.objects.get_deleted().filter(
+            Q(created_by=self.request.user)
+            | Q(id__in=shared_qr_ids)
+            | Q(project_id__in=shared_project_ids)
+        )
+
+    def list(self, request, *args, **kwargs):
+        qrcodes = self._get_accessible_deleted_qr_queryset()
+
+        qr_type_id = request.query_params.get("qr_type") or request.query_params.get("qr_type_id")
+        if qr_type_id:
+            qrcodes = qrcodes.filter(qr_type_id=qr_type_id)
+
+        qrcodes = qrcodes.order_by("-deleted_at", "-created_at")
+        qrcodes = self.filter_queryset(qrcodes)
+
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(qrcodes, request, view=self)
+        serializer = QRCodeSerializer(page, many=True, context={"request": request})
+        response = paginator.get_paginated_response(serializer.data)
+        response.data["message"] = "Deleted QR codes fetched successfully."
+        return response
+
+    @action(detail=False, methods=["post"], url_path="hard-delete")
+    def hard_delete(self, request, *args, **kwargs):
+        qr_ids = request.data.get("ids") or request.data.get("qr_ids") or []
+        if not isinstance(qr_ids, list) or not qr_ids:
+            return Response(
+                {"data": {}, "message": "ids is required and must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qr_codes = self._get_accessible_deleted_qr_queryset().filter(id__in=qr_ids)
+        found_ids = set(str(qr.id) for qr in qr_codes)
+        requested_ids = {str(qr_id) for qr_id in qr_ids}
+
+        if found_ids != requested_ids:
+            missing_ids = sorted(requested_ids - found_ids)
+            return Response(
+                {
+                    "data": {"missing_ids": missing_ids},
+                    "message": "One or more QR codes could not be found in recycle bin.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        deleted_count = 0
+        for qr_code in qr_codes:
+            qr_code.hard_delete()
+            deleted_count += 1
+
+        return Response(
+            {
+                "data": {"deleted_count": deleted_count, "ids": sorted(found_ids)},
+                "message": "QR codes permanently deleted successfully.",
+            },
+            status=status.HTTP_200_OK,
         )
 
 
