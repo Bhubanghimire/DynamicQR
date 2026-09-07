@@ -73,10 +73,7 @@ def _enforce_qr_limit(user, requested=1):
     if qr_limit is None:
         return None
 
-    used = QRCode.objects.filter(
-        created_by=user,
-        is_deleted=False,
-    ).count()
+    used = QRCode.objects.filter(created_by=user).count()
     if used + requested > qr_limit:
         return _build_limit_response(
             "QR code limit reached for your package.",
