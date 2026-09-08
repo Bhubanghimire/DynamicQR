@@ -503,7 +503,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except QRCode.DoesNotExist:
             return Response(
                 {"data": {}, "message": "QR code not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         qr.project = project
@@ -532,7 +532,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except QRCode.DoesNotExist:
             return Response(
                 {"data": {}, "message": "QR code not found in this project."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         qr.project = None
@@ -968,7 +968,7 @@ class QRRecycleBinViewSet(viewsets.ViewSet):
                     "data": {"missing_ids": missing_ids},
                     "message": "One or more QR codes could not be found in recycle bin.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         deleted_count = 0
@@ -1133,7 +1133,7 @@ class VideoViewSet(viewsets.ViewSet):
         except MediaItem.DoesNotExist:
             return Response(
                 {"data": {}, "message": "Video media item not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=404,
             )
 
         media_item.delete()
@@ -1149,7 +1149,7 @@ class VideoViewSet(viewsets.ViewSet):
         except MediaItem.DoesNotExist:
             return Response(
                 {"data": {}, "message": "Video media item not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=404,
             )
 
         serializer = VideoUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
@@ -1374,7 +1374,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "data": {},
                     "message": "Invitation not found.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         if invitation.expires_at < timezone.now():
@@ -1426,7 +1426,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                         "data": {},
                         "message": "Invitation not found.",
                     },
-                    status=status.HTTP_404_NOT_FOUND,
+                    status=400,
                 )
 
             # Check expiry
@@ -1550,7 +1550,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                         "data": {},
                         "message": "Invitation not found.",
                     },
-                    status=status.HTTP_404_NOT_FOUND,
+                    status=400,
                 )
 
             if invitation.expires_at < timezone.now():
@@ -1636,7 +1636,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "data": {},
                     "message": "Invitation not found.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         # Only the person who sent the invitation can cancel it
@@ -1718,7 +1718,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "data": {},
                     "message": "Invitation not found.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         # Only sender can resend
@@ -2216,7 +2216,7 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             return Response({
                 'data': {},
                 'message': 'Invalid verification token'
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=400)
 
         # If domain is already active
         if domain.status == CustomDomain.Status.ACTIVE:
