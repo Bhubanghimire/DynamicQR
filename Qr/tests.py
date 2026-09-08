@@ -156,6 +156,23 @@ class QRCodeListTests(TestCase):
         self.assertTrue(response.data["data"])
         self.assertEqual(response.data["data"][0]["domain_name"], "https://example.com")
 
+    def test_qr_list_excludes_drafts(self):
+        draft_qr = QRCode.objects.create(
+            name="Draft QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            is_draft=True,
+            status=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get("/api/v1.1/user/qr/")
+
+        self.assertEqual(response.status_code, 200)
+        qr_ids = {qr["id"] for qr in response.data["data"]}
+        self.assertNotIn(str(draft_qr.id), qr_ids)
+        self.assertIn(str(self.qr_code.id), qr_ids)
+
 
 class QRAnalyticsDetailSummaryTests(TestCase):
     def setUp(self):

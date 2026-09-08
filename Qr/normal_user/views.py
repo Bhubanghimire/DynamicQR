@@ -121,6 +121,7 @@ class ProjectSchema(PaginatedAutoSchema):
         tag_by_basename = {
             "project": "Projects",
             "Qr": "QR Codes",
+            "qr-recycle-bin": "Recycle Bin",
             "video": "QR Codes",
             "template_design": "Templates",
         }
@@ -619,10 +620,11 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         )
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(is_draft=False)
         if self.action == "scan":
-            return queryset
-        return self._get_accessible_qr_queryset(include_deleted=False)
+            return super().get_queryset().filter(is_draft=False)
+        return self._get_accessible_qr_queryset(include_deleted=False).filter(
+            is_draft=False
+        )
 
     def _get_client_ip(self, request):
         x_real_ip = request.META.get("HTTP_X_REAL_IP")
