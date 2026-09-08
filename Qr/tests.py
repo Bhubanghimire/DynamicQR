@@ -173,6 +173,26 @@ class QRCodeListTests(TestCase):
         self.assertNotIn(str(draft_qr.id), qr_ids)
         self.assertIn(str(self.qr_code.id), qr_ids)
 
+    def test_draft_qr_can_be_updated(self):
+        draft_qr = QRCode.objects.create(
+            name="Unsaved QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            is_draft=True,
+            status=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.patch(
+            f"/api/v1.1/user/qr/{draft_qr.id}/",
+            {"QRCode": {"name": "Saved draft"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        draft_qr.refresh_from_db()
+        self.assertEqual(draft_qr.name, "Saved draft")
+
 
 class QRAnalyticsDetailSummaryTests(TestCase):
     def setUp(self):

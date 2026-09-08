@@ -620,11 +620,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         )
 
     def get_queryset(self):
-        if self.action == "scan":
-            return super().get_queryset().filter(is_draft=False)
-        return self._get_accessible_qr_queryset(include_deleted=False).filter(
-            is_draft=False
-        )
+        queryset = self._get_accessible_qr_queryset(include_deleted=False)
+        if self.action == "list":
+            return queryset.filter(is_draft=False)
+        return queryset
 
     def _get_client_ip(self, request):
         x_real_ip = request.META.get("HTTP_X_REAL_IP")
