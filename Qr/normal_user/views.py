@@ -619,7 +619,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         )
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().filter(is_draft=False)
         if self.action == "scan":
             return queryset
         return self._get_accessible_qr_queryset(include_deleted=False)

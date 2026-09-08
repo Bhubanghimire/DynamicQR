@@ -29,6 +29,7 @@ class QRCode(SoftDeletable):
     link_name = models.CharField(max_length=200, null=True, blank=True, unique=True, db_index=True)
     qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_type')
     status = models.BooleanField(default=True)
+    is_draft = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
 
     def __str__(self):
