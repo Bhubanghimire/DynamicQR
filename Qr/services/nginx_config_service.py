@@ -155,6 +155,27 @@ class NginxConfigService:
             logger.error(f"Failed to remove Nginx config for {self.domain}: {str(e)}")
             return {'success': False, 'error': str(e)}
 
+    def cleanup_site(self):
+        """Remove all Nginx files created for this domain."""
+        disable_result = self.disable_site()
+        remove_result = self.remove_config()
+
+        success = disable_result.get('success') and remove_result.get('success')
+        errors = []
+        if not disable_result.get('success'):
+            errors.append(disable_result.get('error', 'Failed to disable Nginx site'))
+        if not remove_result.get('success'):
+            errors.append(remove_result.get('error', 'Failed to remove Nginx config'))
+
+        return {
+            'success': success,
+            'disabled': disable_result,
+            'removed': remove_result,
+            'errors': errors,
+            'config_path': self.config_path,
+            'enabled_path': self.enabled_path,
+        }
+
     @staticmethod
     def test_nginx():
         """Test Nginx configuration"""

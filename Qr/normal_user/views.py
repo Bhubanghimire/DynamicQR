@@ -2301,19 +2301,21 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_destroy(self, instance):
-        """Soft delete domain"""
+        """Delete domain and remove the infrastructure created for it."""
         verification_service = DomainVerificationService()
-        deactivation_result = verification_service.deactivate_domain(instance)
-        ssl_service = SSLProvisioningService(instance.domain)
-        ssl_result = ssl_service.delete_certificate()
+        cleanup_result = verification_service.cleanup_domain_assets(instance)
 
-        instance.is_deleted = True
-        instance.status = CustomDomain.Status.DISABLED
-        instance.nginx_enabled = False
-        instance.ssl_verified = False
-        instance.automation_error = None
-        if not deactivation_result.get('success'):
-            instance.automation_error = deactivation_result.get('error', 'Nginx cleanup failed')
-        if not ssl_result.get('success'):
-            instance.automation_error = ssl_result.get('error', 'SSL cleanup failed')
-        instance.save()
+        if not cleanup_result.get('success'):
+            errors = cleanup_result.get('errors') or ['Domain cleanup failed']
+            instance.automation_error = '; '.join(errors)
+            instance.save(update_fields=['automation_error', 'updated_at'])
+            raise ValidationError(
+                {
+                    'domain': (
+                        'Domain was not deleted because cleanup failed: '
+                        + '; '.join(errors)
+                    )
+                }
+            )
+
+        instance.hard_delete()

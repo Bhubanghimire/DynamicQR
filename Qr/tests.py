@@ -1,10 +1,12 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from Qr.models import Invitations, Project
+from Qr.models import CustomDomain, Invitations, Project
 from Qr.models import QRCode, QRScanSetting
 from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
@@ -288,3 +290,65 @@ class CustomDomainLimitTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.data["message"], "Custom domain limit reached for your package.")
         self.assertEqual(response.data["data"]["limit"], 0)
+
+
+class CustomDomainDeleteTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="domain-delete@example.com",
+            password="password123",
+            full_name="Domain Delete User",
+            phone="5555555556",
+        )
+
+    def test_delete_domain_cleans_assets_and_removes_database_row(self):
+        domain = CustomDomain.objects.create(
+            user=self.user,
+            domain="delete.example.com",
+            status=CustomDomain.Status.ACTIVE,
+            nginx_enabled=True,
+            ssl_verified=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("Qr.normal_user.views.DomainVerificationService.cleanup_domain_assets") as cleanup:
+            cleanup.return_value = {
+                "success": True,
+                "errors": [],
+                "nginx": {"success": True},
+                "ssl": {"success": True},
+            }
+
+            response = self.client.delete(f"/api/v1.1/user/domains/{domain.id}/")
+
+        self.assertEqual(response.status_code, 204)
+        cleanup.assert_called_once()
+        self.assertFalse(CustomDomain._base_manager.filter(id=domain.id).exists())
+
+    def test_delete_domain_preserves_row_when_cleanup_fails(self):
+        domain = CustomDomain.objects.create(
+            user=self.user,
+            domain="cleanup-fails.example.com",
+            status=CustomDomain.Status.ACTIVE,
+            nginx_enabled=True,
+            ssl_verified=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("Qr.normal_user.views.DomainVerificationService.cleanup_domain_assets") as cleanup:
+            cleanup.return_value = {
+                "success": False,
+                "errors": ["SSL cleanup failed"],
+                "nginx": {"success": True},
+                "ssl": {"success": False},
+            }
+
+            response = self.client.delete(f"/api/v1.1/user/domains/{domain.id}/")
+
+        self.assertEqual(response.status_code, 400)
+        domain.refresh_from_db()
+        self.assertFalse(domain.is_deleted)
+        self.assertEqual(domain.automation_error, "SSL cleanup failed")

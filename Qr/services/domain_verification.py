@@ -408,6 +408,40 @@ class DomainVerificationService:
             'message': f'Domain {domain_instance.domain} has been deactivated'
         }
 
+    def cleanup_domain_assets(self, domain_instance):
+        """Remove Nginx and SSL assets created for a custom domain."""
+        nginx_service = NginxConfigService(domain_instance)
+        ssl_service = SSLProvisioningService(domain_instance.domain)
+
+        nginx_result = nginx_service.cleanup_site()
+        reload_result = {'success': True, 'message': 'Nginx reload skipped'}
+        if nginx_result.get('success'):
+            reload_result = NginxConfigService.full_nginx_reload()
+
+        ssl_result = ssl_service.delete_certificate()
+
+        success = (
+            nginx_result.get('success')
+            and reload_result.get('success')
+            and ssl_result.get('success')
+        )
+        errors = []
+        if not nginx_result.get('success'):
+            errors.extend(nginx_result.get('errors') or [nginx_result.get('error', 'Nginx cleanup failed')])
+        if not reload_result.get('success'):
+            errors.append(reload_result.get('error', 'Nginx reload failed'))
+        if not ssl_result.get('success'):
+            errors.append(ssl_result.get('error', 'SSL cleanup failed'))
+
+        return {
+            'success': success,
+            'domain': domain_instance.domain,
+            'nginx': nginx_result,
+            'nginx_reload': reload_result,
+            'ssl': ssl_result,
+            'errors': errors,
+        }
+
     def get_domain_status(self, domain):
         """Get detailed domain status"""
         try:
