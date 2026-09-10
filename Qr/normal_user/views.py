@@ -904,6 +904,7 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
     schema = ProjectSchema()
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
+    serializer_class = QRCodeSerializer
     filter_backends = [SearchFilter]
     search_fields = ["name", "qr_type__name"]
 
