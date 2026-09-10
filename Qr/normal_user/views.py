@@ -900,7 +900,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         )
 
 
-class QRRecycleBinViewSet(viewsets.ViewSet):
+class QRRecycleBinViewSet(viewsets.GenericViewSet):
     schema = ProjectSchema()
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
@@ -927,7 +927,7 @@ class QRRecycleBinViewSet(viewsets.ViewSet):
             Q(created_by=self.request.user)
             | Q(id__in=shared_qr_ids)
             | Q(project_id__in=shared_project_ids)
-        )
+        ).annotate(scanned_no=Count("scan_events", distinct=True))
 
     def list(self, request, *args, **kwargs):
         qrcodes = self._get_accessible_deleted_qr_queryset()
@@ -941,8 +941,12 @@ class QRRecycleBinViewSet(viewsets.ViewSet):
 
         paginator = CustomPagination()
         page = paginator.paginate_queryset(qrcodes, request, view=self)
-        serializer = QRCodeSerializer(page, many=True, context={"request": request})
-        response = paginator.get_paginated_response(serializer.data)
+        serialized_qrcodes = QRCodeSerializer(page, many=True, context={"request": request}).data
+        for qr_code, serialized_qr_code in zip(page, serialized_qrcodes):
+            serialized_qr_code["deleted_at"] = qr_code.deleted_at
+            serialized_qr_code["scanned_no"] = qr_code.scanned_no
+
+        response = paginator.get_paginated_response(serialized_qrcodes)
         response.data["message"] = "Deleted QR codes fetched successfully."
         return response
 
