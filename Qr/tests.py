@@ -1,4 +1,5 @@
-from unittest.mock import patch
+import tempfile
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -45,6 +46,77 @@ class DomainVerificationFlowTests(SimpleTestCase):
         self.assertEqual(domain.status, CustomDomain.Status.VERIFIED)
         verify_cname.assert_called_once_with("brand.example.com")
         verify_http.assert_not_called()
+
+    def test_acme_probe_confirms_public_challenge_file(self):
+        service = DomainVerificationService()
+        response = Mock(status_code=200)
+
+        def fake_get(url, timeout):
+            token = url.rsplit("/", 1)[-1]
+            response.text = f"ok-{token}"
+            return response
+
+        with tempfile.TemporaryDirectory() as webroot:
+            with patch("Qr.services.domain_verification.requests.get", side_effect=fake_get) as get:
+                result = service.verify_acme_challenge_path("brand.example.com", webroot)
+
+        self.assertTrue(result["success"])
+        self.assertIn("http://brand.example.com/.well-known/acme-challenge/", result["url"])
+        get.assert_called_once()
+
+    def test_acme_probe_reports_unreachable_challenge_file(self):
+        service = DomainVerificationService()
+        response = Mock(status_code=404, text="not found")
+
+        with tempfile.TemporaryDirectory() as webroot:
+            with patch("Qr.services.domain_verification.requests.get", return_value=response):
+                result = service.verify_acme_challenge_path("brand.example.com", webroot)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status_code"], 404)
+        self.assertIn("ACME challenge file was not reachable", result["error"])
+
+    def test_activation_stops_before_certbot_when_acme_probe_fails(self):
+        service = DomainVerificationService()
+        domain = type(
+            "DomainStub",
+            (),
+            {
+                "domain": "brand.example.com",
+                "status": None,
+                "verification_attempts": 0,
+                "last_verification_attempt": None,
+                "verified_at": None,
+                "dns_verified_at": None,
+                "automation_error": None,
+                "save": lambda self: None,
+            },
+        )()
+
+        with patch.object(service, "verify_domain", return_value={"success": True}):
+            with patch("Qr.services.domain_verification.NginxConfigService") as nginx:
+                nginx_service = nginx.return_value
+                nginx_service.write_config.return_value = {"success": True}
+                nginx_service.enable_site.return_value = {"success": True}
+                nginx.full_nginx_reload.return_value = {"success": True}
+                with patch.object(
+                    service,
+                    "verify_acme_challenge_path",
+                    return_value={
+                        "success": False,
+                        "error": "challenge unreachable",
+                        "url": "http://brand.example.com/.well-known/acme-challenge/check",
+                        "status_code": 404,
+                    },
+                ):
+                    with patch("Qr.services.domain_verification.SSLProvisioningService") as ssl:
+                        result = service.verify_and_activate_domain(domain)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["step"], "acme_challenge")
+        self.assertEqual(domain.status, CustomDomain.Status.SSL_PENDING)
+        self.assertEqual(domain.automation_error, "challenge unreachable")
+        ssl.assert_not_called()
 
 
 class ProjectInvitationReceiverListTests(TestCase):

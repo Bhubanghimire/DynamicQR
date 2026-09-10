@@ -1,5 +1,6 @@
 # services/domain_verification.py
 import os
+import secrets
 
 import dns.resolver
 import dns.exception
@@ -279,6 +280,50 @@ class DomainVerificationService:
             'results': results
         }
 
+    def verify_acme_challenge_path(self, domain: str, webroot_path: str) -> Dict[str, Any]:
+        """Verify that HTTP-01 challenge files are reachable before running Certbot."""
+        domain = self.normalize_domain(domain)
+        token = f"projecthub-acme-check-{secrets.token_urlsafe(12)}"
+        expected_body = f"ok-{token}"
+        challenge_dir = os.path.join(webroot_path, ".well-known", "acme-challenge")
+        challenge_path = os.path.join(challenge_dir, token)
+        challenge_url = f"http://{domain}/.well-known/acme-challenge/{token}"
+
+        try:
+            os.makedirs(challenge_dir, exist_ok=True)
+            with open(challenge_path, "w") as challenge_file:
+                challenge_file.write(expected_body)
+
+            response = requests.get(challenge_url, timeout=10)
+            if response.status_code == 200 and response.text.strip() == expected_body:
+                return {
+                    'success': True,
+                    'url': challenge_url,
+                    'status_code': response.status_code,
+                }
+
+            return {
+                'success': False,
+                'url': challenge_url,
+                'status_code': response.status_code,
+                'error': (
+                    'ACME challenge file was not reachable from the public domain. '
+                    f'Expected body "{expected_body}", got "{response.text[:120]}".'
+                ),
+            }
+        except Exception as exc:
+            return {
+                'success': False,
+                'url': challenge_url,
+                'error': str(exc),
+            }
+        finally:
+            try:
+                if os.path.exists(challenge_path):
+                    os.remove(challenge_path)
+            except OSError:
+                logger.warning("Failed to remove ACME probe file for %s", domain)
+
     # services/domain_verification.py
 
     def verify_and_activate_domain(self, domain_instance):
@@ -317,6 +362,19 @@ class DomainVerificationService:
             domain_instance.automation_error = reload_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_reload', 'error': reload_result.get('error')}
+
+        acme_result = self.verify_acme_challenge_path(domain_instance.domain, root_path)
+        if not acme_result['success']:
+            domain_instance.status = CustomDomain.Status.SSL_PENDING
+            domain_instance.automation_error = acme_result.get('error')
+            domain_instance.save()
+            return {
+                'success': False,
+                'step': 'acme_challenge',
+                'error': acme_result.get('error'),
+                'url': acme_result.get('url'),
+                'status_code': acme_result.get('status_code'),
+            }
 
         # Step 3: Provision SSL using webroot
         ssl_service = SSLProvisioningService(domain_instance.domain)

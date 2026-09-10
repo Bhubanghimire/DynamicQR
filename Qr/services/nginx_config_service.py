@@ -27,6 +27,8 @@ class NginxConfigService:
         # Let's Encrypt HTTP-01 challenge
         location /.well-known/acme-challenge/ {
             root {{ root }};
+            default_type text/plain;
+            try_files $uri =404;
         }
 
         {% if ssl_enabled %}
