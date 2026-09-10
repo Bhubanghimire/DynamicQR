@@ -987,6 +987,58 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=False, methods=["post"], url_path="restore")
+    def restore(self, request, *args, **kwargs):
+        qr_ids = request.data.get("ids") or request.data.get("qr_ids") or []
+
+        if not isinstance(qr_ids, list) or not qr_ids:
+            return Response(
+                {
+                    "data": {},
+                    "message": "ids is required and must be a non-empty list.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get only deleted QR codes the current user has access to
+        qr_codes = self._get_accessible_deleted_qr_queryset().filter(
+            id__in=qr_ids
+        )
+
+        found_ids = {str(qr.id) for qr in qr_codes}
+        requested_ids = {str(qr_id) for qr_id in qr_ids}
+
+        # Make sure all requested IDs are accessible and exist in recycle bin
+        if found_ids != requested_ids:
+            missing_ids = sorted(requested_ids - found_ids)
+
+            return Response(
+                {
+                    "data": {
+                        "missing_ids": missing_ids,
+                    },
+                    "message": "One or more QR codes could not be found in recycle bin.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        restored_count = 0
+
+        for qr_code in qr_codes:
+            qr_code.restore()
+            restored_count += 1
+
+        return Response(
+            {
+                "data": {
+                    "restored_count": restored_count,
+                    "ids": sorted(found_ids),
+                },
+                "message": "QR codes restored successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class TemplateViewSet(viewsets.ModelViewSet):
     queryset = TemplateDesign.objects.all()
