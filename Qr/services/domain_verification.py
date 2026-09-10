@@ -46,7 +46,10 @@ class DomainVerificationService:
         """Normalize domain string"""
         if not domain:
             return domain
-        return domain.strip().lower().rstrip(".")
+        domain = domain.strip().lower()
+        domain = domain.removeprefix("https://").removeprefix("http://")
+        domain = domain.split("/")[0]
+        return domain.rstrip(".")
 
     def get_a_records(self, domain: str, use_cache: bool = True) -> List[str]:
         domain = self.normalize_domain(domain)
@@ -534,7 +537,10 @@ def normalize_domain(domain: str) -> str:
     """Helper function to normalize domain"""
     if not domain:
         return domain
-    return domain.strip().lower().rstrip(".")
+    domain = domain.strip().lower()
+    domain = domain.removeprefix("https://").removeprefix("http://")
+    domain = domain.split("/")[0]
+    return domain.rstrip(".")
 
 
 """

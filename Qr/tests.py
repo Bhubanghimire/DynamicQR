@@ -15,13 +15,19 @@ from Qr.services.domain_verification import DomainVerificationService
 
 
 class DomainVerificationFlowTests(SimpleTestCase):
-    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="qrpac.com")
-    def test_expected_cname_uses_frontend_domain(self):
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="customdomain.qrpac.com")
+    def test_expected_cname_uses_custom_domain_gateway(self):
         service = DomainVerificationService()
 
-        self.assertEqual(service.expected_cname, "qrpac.com")
+        self.assertEqual(service.expected_cname, "customdomain.qrpac.com")
 
-    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="qrpac.com")
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="http://customdomain.qrpac.com/")
+    def test_expected_cname_strips_protocol_and_path(self):
+        service = DomainVerificationService()
+
+        self.assertEqual(service.expected_cname, "customdomain.qrpac.com")
+
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="customdomain.qrpac.com")
     def test_cname_verification_does_not_require_existing_http_site(self):
         service = DomainVerificationService()
         domain = type(
