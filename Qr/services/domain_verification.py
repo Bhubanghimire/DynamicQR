@@ -203,7 +203,7 @@ class DomainVerificationService:
             return False
 
     def verify_domain(self, domain_instance) -> Dict[str, Any]:
-        """Verify domain using multiple methods"""
+        """Verify that the custom domain points to the configured frontend domain."""
         if isinstance(domain_instance, str):
             try:
                 domain_instance = CustomDomain.objects.get(domain=domain_instance)
@@ -214,34 +214,29 @@ class DomainVerificationService:
                 }
 
         domain = self.normalize_domain(domain_instance.domain)
-        token = domain_instance.verification_token
-
         # Update status to verifying
         domain_instance.status = CustomDomain.Status.VERIFYING
         domain_instance.verification_attempts += 1
         domain_instance.last_verification_attempt = timezone.now()
         domain_instance.save()
 
-        # Try multiple verification methods
         verification_results = {
             'cname': self.verify_cname_record(domain),
-            'http': self.verify_http(domain),
+            'expected_cname': self.expected_cname,
         }
 
-        # Require both DNS CNAME and frontend HTTP reachability
-        is_verified = all(verification_results.values())
+        is_verified = verification_results['cname']
 
         if is_verified:
-            domain_instance.status = CustomDomain.Status.ACTIVE
+            domain_instance.status = CustomDomain.Status.VERIFIED
             domain_instance.verified_at = timezone.now()
-            domain_instance.activated_at = timezone.now()
             domain_instance.save()
 
             return {
                 'success': True,
-                'message': 'Domain verified successfully',
+                'message': 'Domain CNAME verified successfully',
                 'domain': domain,
-                'method': next((k for k, v in verification_results.items() if v), 'unknown'),
+                'method': 'cname',
                 'verification_results': verification_results
             }
         else:
@@ -250,7 +245,7 @@ class DomainVerificationService:
 
             return {
                 'success': False,
-                'message': 'DNS verification failed. Please check your CNAME record and frontend response.',
+                'message': 'DNS verification failed. Please check your CNAME record.',
                 'domain': domain,
                 'attempts': domain_instance.verification_attempts,
                 'verification_results': verification_results
@@ -303,7 +298,7 @@ class DomainVerificationService:
         root_path = f"/var/www/qrpac"
         nginx_result = nginx_service.write_config(context={'root': root_path})
         if not nginx_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = nginx_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_write', 'error': nginx_result.get('error')}
@@ -311,14 +306,14 @@ class DomainVerificationService:
         # Enable and reload Nginx (HTTP now serves the domain)
         enable_result = nginx_service.enable_site()
         if not enable_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = enable_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_enable', 'error': enable_result.get('error')}
 
         reload_result = NginxConfigService.full_nginx_reload()
         if not reload_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = reload_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_reload', 'error': reload_result.get('error')}
@@ -353,7 +348,7 @@ class DomainVerificationService:
             }
         )
         if not ssl_nginx_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = ssl_nginx_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_ssl_write', 'error': ssl_nginx_result.get('error')}
@@ -361,7 +356,7 @@ class DomainVerificationService:
         # Reload Nginx again (now with SSL)
         reload_result = NginxConfigService.full_nginx_reload()
         if not reload_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = reload_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_reload_ssl', 'error': reload_result.get('error')}

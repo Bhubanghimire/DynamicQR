@@ -404,7 +404,7 @@ class CustomDomain(SoftDeletable):
         return self.status in [self.Status.PENDING, self.Status.VERIFYING]
 
     def get_verification_url(self):
-        return f"https://{settings.BASE_DOMAIN}/api/domains/verify/{self.verification_token}"
+        return f"https://{settings.BASE_DOMAIN}/api/v1.1/user/domains/verify/{self.verification_token}/"
 
     def get_cname_target(self):
         return settings.CUSTOM_DOMAIN_CNAME_TARGET

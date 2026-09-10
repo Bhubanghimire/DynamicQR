@@ -17,7 +17,6 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import NotFound, ValidationError
 from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
-from Qr.services.ssl_provisioning_service import SSLProvisioningService
 
 from Qr.tasks import (
     process_qr_import,
@@ -2064,14 +2063,25 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         # Start verification process synchronously
         try:
             verification_service = DomainVerificationService()
-            verification_service.verify_and_activate_domain(domain)
+            result = verification_service.verify_and_activate_domain(domain)
+
+            if result.get('success'):
+                return Response({
+                    'data': {
+                        'domain': serializer.data,
+                        'status': domain.status,
+                        'verification': result,
+                    },
+                    'message': 'Domain added, verified, and activated successfully!',
+                }, status=status.HTTP_201_CREATED)
 
             return Response({
                 'data': {
                     'domain': serializer.data,
-                    'status': domain.status
+                    'status': domain.status,
+                    'verification': result,
                 },
-                'message': 'Domain added and verified successfully!',
+                'message': result.get('message', 'Domain added but verification failed.'),
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -2114,9 +2124,11 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         """Activate a verified domain"""
         domain = self.get_object()
 
-        if domain.status not in [CustomDomain.Status.DNS_VERIFIED,
-                                 CustomDomain.Status.SSL_PENDING,
-                                 CustomDomain.Status.NGINX_PENDING]:
+        if domain.status not in [
+            CustomDomain.Status.VERIFIED,
+            CustomDomain.Status.SSL_PENDING,
+            CustomDomain.Status.FAILED,
+        ]:
             return Response({
                 'data': {},
                 'message': f'Domain cannot be activated. Current status: {domain.status}'
@@ -2268,37 +2280,30 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         """Retry SSL provisioning for a domain"""
         domain = self.get_object()
 
-        if domain.status not in [CustomDomain.Status.SSL_PENDING,
-                                 CustomDomain.Status.DNS_VERIFIED]:
+        if domain.status not in [
+            CustomDomain.Status.SSL_PENDING,
+            CustomDomain.Status.VERIFIED,
+            CustomDomain.Status.FAILED,
+        ]:
             return Response({
                 'data': {},
                 'message': f'SSL provisioning cannot be retried. Current status: {domain.status}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        ssl_service = SSLProvisioningService(domain.domain)
-        result = ssl_service.provision_certificate()
-
-        if result['success']:
-            domain.ssl_verified = True
-            domain.ssl_issued_at = timezone.now()
-            domain.ssl_expires_at = result.get('expires_at')
-            domain.status = CustomDomain.Status.SSL_PENDING
-            domain.save()
-
-            # Try to continue the activation
-            verification_service = DomainVerificationService()
-            result = verification_service.verify_and_activate_domain(domain)
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_and_activate_domain(domain)
+        if result.get('success'):
             return Response({
                 'data': result,
-                'message': result.get('message', 'SSL provisioning successful')
+                'message': result.get('message', 'SSL provisioning successful'),
             })
-        else:
-            domain.automation_error = result.get('error', 'SSL provisioning failed')
-            domain.save()
-            return Response({
-                'data': result,
-                'message': result.get('error', 'SSL provisioning failed')
-            }, status=status.HTTP_400_BAD_REQUEST)
+
+        domain.automation_error = result.get('error', 'SSL provisioning failed')
+        domain.save(update_fields=['automation_error', 'updated_at'])
+        return Response({
+            'data': result,
+            'message': result.get('error', 'SSL provisioning failed'),
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_destroy(self, instance):
         """Delete domain and remove the infrastructure created for it."""

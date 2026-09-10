@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -10,6 +10,41 @@ from Qr.models import CustomDomain, Invitations, Project
 from Qr.models import QRCode, QRScanSetting
 from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
+from Qr.services.domain_verification import DomainVerificationService
+
+
+class DomainVerificationFlowTests(SimpleTestCase):
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="qrpac.com")
+    def test_expected_cname_uses_frontend_domain(self):
+        service = DomainVerificationService()
+
+        self.assertEqual(service.expected_cname, "qrpac.com")
+
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="qrpac.com")
+    def test_cname_verification_does_not_require_existing_http_site(self):
+        service = DomainVerificationService()
+        domain = type(
+            "DomainStub",
+            (),
+            {
+                "domain": "brand.example.com",
+                "status": None,
+                "verification_attempts": 0,
+                "last_verification_attempt": None,
+                "verified_at": None,
+                "save": lambda self: None,
+            },
+        )()
+
+        with patch.object(service, "verify_cname_record", return_value=True) as verify_cname:
+            with patch.object(service, "verify_http") as verify_http:
+                result = service.verify_domain(domain)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["method"], "cname")
+        self.assertEqual(domain.status, CustomDomain.Status.VERIFIED)
+        verify_cname.assert_called_once_with("brand.example.com")
+        verify_http.assert_not_called()
 
 
 class ProjectInvitationReceiverListTests(TestCase):
