@@ -1,0 +1,100 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dynamicocr}
+      POSTGRES_USER: ${POSTGRES_USER:-dynamicocr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dynamicocr}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    env_file:
+      - .env
+    environment: &app_environment
+      DATABASE_URL: ${DATABASE_URL:-postgres://dynamicocr:dynamicocr@db:5432/dynamicocr}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+    # --run-syncdb is needed until this repository starts committing Django
+    # migrations for its local apps.
+    command: sh -c "python manage.py migrate --noinput --run-syncdb && python manage.py collectstatic --noinput"
+    volumes:
+      - static_data:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment: *app_environment
+    command: gunicorn DynamicOCR.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 60
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment: *app_environment
+    command: celery -A DynamicOCR worker --loglevel=INFO
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  beat:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment: *app_environment
+    command: celery -A DynamicOCR beat --loglevel=INFO --schedule=/var/run/celery/celerybeat-schedule
+    volumes:
+      - celery_beat_data:/var/run/celery
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
+  static_data:
+  celery_beat_data:
