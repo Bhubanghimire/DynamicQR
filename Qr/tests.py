@@ -308,6 +308,23 @@ class QRCodeListTests(TestCase):
         draft_qr.refresh_from_db()
         self.assertEqual(draft_qr.name, "Saved draft")
 
+    def test_draft_qr_cannot_be_scanned_publicly(self):
+        draft_qr = QRCode.objects.create(
+            name="Unpublished QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            is_draft=True,
+            status=True,
+        )
+
+        response = self.client.post(
+            f"/api/v1.1/user/qr/{draft_qr.short_code}/scan/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
 
 class QRAnalyticsDetailSummaryTests(TestCase):
     def setUp(self):

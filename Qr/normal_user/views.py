@@ -639,11 +639,13 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         if identifier in (None, ""):
             raise NotFound()
 
-        qr = QRCode.objects.filter(short_code=identifier).first()
+        # Draft QR codes are not published and must never be reachable from
+        # any public scan-related endpoint.
+        qr = QRCode.objects.filter(short_code=identifier, is_draft=False).first()
         if qr is not None:
             return qr
 
-        qr = QRCode.objects.filter(link_name=identifier).first()
+        qr = QRCode.objects.filter(link_name=identifier, is_draft=False).first()
         if qr is not None:
             return qr
 
@@ -652,7 +654,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         except (TypeError, ValueError):
             raise NotFound()
 
-        qr = QRCode.objects.filter(pk=identifier).first()
+        qr = QRCode.objects.filter(pk=identifier, is_draft=False).first()
         if qr is None:
             raise NotFound()
         return qr
