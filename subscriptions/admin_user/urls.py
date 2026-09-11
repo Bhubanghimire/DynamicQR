@@ -1,17 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from accounts.views import AuthViewSet
+from subscriptions.admin_user.views import PackageViewSet, InvoiceViewSet
 
-app_name = "accounts_admin"
+app_name = "subscriptions_admin"
 
-account_router = DefaultRouter()
-# account_router.register(r'auth', AuthViewSet, basename='auth')
-# account_router.register(r'main_dashboard', MainViewSet, basename='main_dashboard')
-# account_router.register(r'profile', ProfileViewSet, basename='profile')
-# account_router.register(r'chat', ChatViewSet, basename='chat')
-# account_router.register(r'fcm_token', FCMDeviceViewSet, basename='fcm_token')
-# account_router.register(r'dashboard', GlobalSearchViewSet, basename='global_search')
+subscription_router = DefaultRouter()
+subscription_router.register(r'packages', PackageViewSet, basename='packages')
+subscription_router.register(r'invoices', InvoiceViewSet, basename='invoices')
 
 urlpatterns = [
-    path('', include(account_router.urls)),
+    path('', include(subscription_router.urls)),
 ]

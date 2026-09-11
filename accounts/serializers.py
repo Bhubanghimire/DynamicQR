@@ -226,3 +226,9 @@ class UserSessionSerializer(serializers.ModelSerializer):
         if not isinstance(payload, dict):
             return False
         return str(payload.get('session_id')) == str(obj.session_id)
+
+
+class UserAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "email", "full_name", "is_active", "is_staff"]

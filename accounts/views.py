@@ -66,7 +66,7 @@ def set_refresh_cookie(response, refresh_token):
     return response
 
 
-class AccountsAuthSchema(AutoSchema):
+class AdminAutoSchema(AutoSchema):
     def get_tags(self, path, method):
         if '/api/v1.1/admin/subscriptions/' in path:
             return ["Admin Subscriptions"]
@@ -78,8 +78,9 @@ class AccountsAuthSchema(AutoSchema):
             return ["Admin System"]
         if '/api/v1.1/admin/accounts/' in path:
             return ["Admin Accounts"]
-        return ["Accounts"]
+        return ["Admin API"]
 
+class AccountsAuthSchema(AdminAutoSchema):
     def get_operation_id(self, path, method):
         return f"accounts_{self.view.action}"
 
@@ -219,6 +220,11 @@ class AuthViewSet(viewsets.ViewSet):
         if user is None:
             raise serializers.ValidationError(
                 {"message": "A user with this email and password was not found."}
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                {"message": "Your account is disabled. Please contact support."}
             )
 
         is_correct = check_password(password, user.password)

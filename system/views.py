@@ -1,6 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAdminUser
+from accounts.views import AdminAutoSchema
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 from DynamicOCR.schemas import PaginatedAutoSchema
@@ -21,10 +22,10 @@ class CategorySchema(PaginatedAutoSchema):
 
 
 class ConfigCategoryViewSet(viewsets.ModelViewSet):
-    schema = CategorySchema()
+    schema = AdminAutoSchema()
     queryset = ConfigCategory.objects.all().order_by("id")
     serializer_class = ConfigCategorySerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminUser]
     http_method_names = ["get"]
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
