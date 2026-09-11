@@ -25,6 +25,26 @@
         margin: 0 0 8px;
         font-size: 20px;
       }
+      .api-selector {
+        margin-bottom: 24px;
+      }
+      .api-selector label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .api-selector select {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+        background: #fff;
+        cursor: pointer;
+      }
       .auth-panel p {
         margin: 0 0 16px;
         color: #475569;
@@ -88,6 +108,13 @@
     <div class="swagger-shell">
       <aside class="auth-panel">
         <h2>API Login</h2>
+        <div class="api-selector">
+          <label for="api-select">API View</label>
+          <select id="api-select">
+            <option value="{{ schema_url }}">User API</option>
+            <option value="/api/admin/schema/" {% if "admin" in page_title %}selected{% endif %}>Admin API</option>
+          </select>
+        </div>
         <p>Use your JWT here so Swagger sends authenticated requests to protected endpoints.</p>
         <label for="swagger-email">Email</label>
         <input id="swagger-email" type="email" placeholder="user@example.com" />
@@ -142,8 +169,24 @@
           statusEl.textContent = "Login request failed.";
         }
       });
+      
+      const apiSelect = document.getElementById("api-select");
+
+      // Handle initial load based on URL param
+      const urlParams = new URLSearchParams(window.location.search);
+      const apiMode = urlParams.get("api");
+      let initialSchemaUrl = apiSelect ? apiSelect.value : "{{ schema_url }}";
+
+      if (apiMode === "admin") {
+          initialSchemaUrl = "/api/admin/schema/";
+          if (apiSelect) apiSelect.value = "/api/admin/schema/";
+      } else if (apiMode === "user") {
+          initialSchemaUrl = "{{ schema_url }}";
+          if (apiSelect) apiSelect.value = "{{ schema_url }}";
+      }
+
       window.ui = SwaggerUIBundle({
-        url: "{{ schema_url }}?v=20260804",
+        url: initialSchemaUrl + "?v=20260804",
         dom_id: "#swagger-ui",
         deepLinking: true,
         displayRequestDuration: true,
@@ -157,6 +200,15 @@
           return request;
         },
       });
+
+      apiSelect.addEventListener("change", () => {
+          const newUrl = apiSelect.value;
+          const mode = newUrl.includes("admin") ? "admin" : "user";
+          const currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set("api", mode);
+          window.location.href = currentUrl.toString();
+      });
+      
       updateStatus();
     </script>
   </body>
