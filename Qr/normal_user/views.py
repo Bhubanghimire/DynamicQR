@@ -17,7 +17,6 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import NotFound, ValidationError
 from DynamicOCR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
-from Qr.services.ssl_provisioning_service import SSLProvisioningService
 
 from Qr.tasks import (
     process_qr_import,
@@ -30,6 +29,8 @@ from Qr.tasks import (
 from accounts.authentication import JWTAuthentication
 from accounts.models import User
 from django.db.models import Count, Q, Max
+from django.db.models import IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
     QRImportJob, CustomDomain, QRSchedule
 from Qr.serializers import (
@@ -71,10 +72,7 @@ def _enforce_qr_limit(user, requested=1):
     if qr_limit is None:
         return None
 
-    used = QRCode.objects.filter(
-        created_by=user,
-        is_deleted=False,
-    ).count()
+    used = QRCode.objects.filter(created_by=user).count()
     if used + requested > qr_limit:
         return _build_limit_response(
             "QR code limit reached for your package.",
@@ -122,6 +120,7 @@ class ProjectSchema(PaginatedAutoSchema):
         tag_by_basename = {
             "project": "Projects",
             "Qr": "QR Codes",
+            "qr-recycle-bin": "Recycle Bin",
             "video": "QR Codes",
             "template_design": "Templates",
         }
@@ -410,11 +409,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
     serializer_class = ProjectSerializer
-    queryset = Project.objects.annotate(qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False))).order_by("-created_at")
+    queryset = Project.objects.all()
 
     def get_queryset(self):
         queryset = super().get_queryset()
         project_content_type = ContentType.objects.get_for_model(Project)
+        accepted_people_count = SharePermissions.objects.filter(
+            content_type=project_content_type,
+            resource_id=OuterRef("pk"),
+            is_deleted=False,
+        ).values("resource_id").annotate(
+            total=Count("id", distinct=True)
+        ).values("total")[:1]
+
+        queryset = queryset.annotate(
+            qr_count=Count("qrcode", filter=Q(qrcode__is_deleted=False)),
+            accepted_people_count=Coalesce(
+                Subquery(accepted_people_count, output_field=IntegerField()),
+                Value(0),
+            ),
+        )
         shared_project_ids = SharePermissions.objects.filter(
             user_id=self.request.user,
             content_type=project_content_type,
@@ -423,7 +437,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(
             Q(owner=self.request.user) | Q(id__in=shared_project_ids)
-        )
+        ).order_by("-created_at")
 
     def get_search_fields(self):
         if self.action == "qrs":
@@ -488,7 +502,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except QRCode.DoesNotExist:
             return Response(
                 {"data": {}, "message": "QR code not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         qr.project = project
@@ -517,7 +531,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except QRCode.DoesNotExist:
             return Response(
                 {"data": {}, "message": "QR code not found in this project."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         qr.project = None
@@ -581,10 +595,8 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return super().get_permissions()
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        if self.action == "scan":
-            return queryset
+    def _get_accessible_qr_queryset(self, include_deleted=False):
+        queryset = QRCode.objects.get_deleted() if include_deleted else QRCode.objects.all()
         qr_content_type = ContentType.objects.get_for_model(QRCode)
         project_content_type = ContentType.objects.get_for_model(Project)
 
@@ -606,6 +618,12 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             | Q(project_id__in=shared_project_ids)
         )
 
+    def get_queryset(self):
+        queryset = self._get_accessible_qr_queryset(include_deleted=False)
+        if self.action == "list":
+            return queryset.filter(is_draft=False)
+        return queryset
+
     def _get_client_ip(self, request):
         x_real_ip = request.META.get("HTTP_X_REAL_IP")
         if x_real_ip:
@@ -621,11 +639,13 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         if identifier in (None, ""):
             raise NotFound()
 
-        qr = QRCode.objects.filter(short_code=identifier).first()
+        # Draft QR codes are not published and must never be reachable from
+        # any public scan-related endpoint.
+        qr = QRCode.objects.filter(short_code=identifier, is_draft=False).first()
         if qr is not None:
             return qr
 
-        qr = QRCode.objects.filter(link_name=identifier).first()
+        qr = QRCode.objects.filter(link_name=identifier, is_draft=False).first()
         if qr is not None:
             return qr
 
@@ -634,7 +654,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         except (TypeError, ValueError):
             raise NotFound()
 
-        qr = QRCode.objects.filter(pk=identifier).first()
+        qr = QRCode.objects.filter(pk=identifier, is_draft=False).first()
         if qr is None:
             raise NotFound()
         return qr
@@ -882,6 +902,146 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         )
 
 
+class QRRecycleBinViewSet(viewsets.GenericViewSet):
+    schema = ProjectSchema()
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    serializer_class = QRCodeSerializer
+    filter_backends = [SearchFilter]
+    search_fields = ["name", "qr_type__name"]
+
+    def _get_accessible_deleted_qr_queryset(self):
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+
+        shared_qr_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=qr_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+        ).values_list("resource_id", flat=True)
+
+        return QRCode.objects.get_deleted().filter(
+            Q(created_by=self.request.user)
+            | Q(id__in=shared_qr_ids)
+            | Q(project_id__in=shared_project_ids)
+        ).annotate(scanned_no=Count("scan_events", distinct=True))
+
+    def list(self, request, *args, **kwargs):
+        qrcodes = self._get_accessible_deleted_qr_queryset()
+
+        qr_type_id = request.query_params.get("qr_type") or request.query_params.get("qr_type_id")
+        if qr_type_id:
+            qrcodes = qrcodes.filter(qr_type_id=qr_type_id)
+
+        qrcodes = qrcodes.order_by("-deleted_at", "-created_at")
+        qrcodes = self.filter_queryset(qrcodes)
+
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(qrcodes, request, view=self)
+        serialized_qrcodes = QRCodeSerializer(page, many=True, context={"request": request}).data
+        for qr_code, serialized_qr_code in zip(page, serialized_qrcodes):
+            serialized_qr_code["deleted_at"] = qr_code.deleted_at
+            serialized_qr_code["scanned_no"] = qr_code.scanned_no
+
+        response = paginator.get_paginated_response(serialized_qrcodes)
+        response.data["message"] = "Deleted QR codes fetched successfully."
+        return response
+
+    @action(detail=False, methods=["post"], url_path="hard-delete")
+    def hard_delete(self, request, *args, **kwargs):
+        qr_ids = request.data.get("ids") or request.data.get("qr_ids") or []
+        if not isinstance(qr_ids, list) or not qr_ids:
+            return Response(
+                {"data": {}, "message": "ids is required and must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qr_codes = self._get_accessible_deleted_qr_queryset().filter(id__in=qr_ids)
+        found_ids = set(str(qr.id) for qr in qr_codes)
+        requested_ids = {str(qr_id) for qr_id in qr_ids}
+
+        if found_ids != requested_ids:
+            missing_ids = sorted(requested_ids - found_ids)
+            return Response(
+                {
+                    "data": {"missing_ids": missing_ids},
+                    "message": "One or more QR codes could not be found in recycle bin.",
+                },
+                status=400,
+            )
+
+        deleted_count = 0
+        for qr_code in qr_codes:
+            qr_code.hard_delete()
+            deleted_count += 1
+
+        return Response(
+            {
+                "data": {"deleted_count": deleted_count, "ids": sorted(found_ids)},
+                "message": "QR codes permanently deleted successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="restore")
+    def restore(self, request, *args, **kwargs):
+        qr_ids = request.data.get("ids") or request.data.get("qr_ids") or []
+
+        if not isinstance(qr_ids, list) or not qr_ids:
+            return Response(
+                {
+                    "data": {},
+                    "message": "ids is required and must be a non-empty list.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get only deleted QR codes the current user has access to
+        qr_codes = self._get_accessible_deleted_qr_queryset().filter(
+            id__in=qr_ids
+        )
+
+        found_ids = {str(qr.id) for qr in qr_codes}
+        requested_ids = {str(qr_id) for qr_id in qr_ids}
+
+        # Make sure all requested IDs are accessible and exist in recycle bin
+        if found_ids != requested_ids:
+            missing_ids = sorted(requested_ids - found_ids)
+
+            return Response(
+                {
+                    "data": {
+                        "missing_ids": missing_ids,
+                    },
+                    "message": "One or more QR codes could not be found in recycle bin.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        restored_count = 0
+
+        for qr_code in qr_codes:
+            qr_code.restore()
+            restored_count += 1
+
+        return Response(
+            {
+                "data": {
+                    "restored_count": restored_count,
+                    "ids": sorted(found_ids),
+                },
+                "message": "QR codes restored successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class TemplateViewSet(viewsets.ModelViewSet):
     queryset = TemplateDesign.objects.all()
     serializer_class = TemplateDesignSerializer
@@ -1030,7 +1190,7 @@ class VideoViewSet(viewsets.ViewSet):
         except MediaItem.DoesNotExist:
             return Response(
                 {"data": {}, "message": "Video media item not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=404,
             )
 
         media_item.delete()
@@ -1046,7 +1206,7 @@ class VideoViewSet(viewsets.ViewSet):
         except MediaItem.DoesNotExist:
             return Response(
                 {"data": {}, "message": "Video media item not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                status=404,
             )
 
         serializer = VideoUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
@@ -1271,7 +1431,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "data": {},
                     "message": "Invitation not found.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         if invitation.expires_at < timezone.now():
@@ -1323,7 +1483,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                         "data": {},
                         "message": "Invitation not found.",
                     },
-                    status=status.HTTP_404_NOT_FOUND,
+                    status=400,
                 )
 
             # Check expiry
@@ -1447,7 +1607,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                         "data": {},
                         "message": "Invitation not found.",
                     },
-                    status=status.HTTP_404_NOT_FOUND,
+                    status=400,
                 )
 
             if invitation.expires_at < timezone.now():
@@ -1533,7 +1693,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "data": {},
                     "message": "Invitation not found.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         # Only the person who sent the invitation can cancel it
@@ -1615,7 +1775,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     "data": {},
                     "message": "Invitation not found.",
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=400,
             )
 
         # Only sender can resend
@@ -1962,14 +2122,25 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         # Start verification process synchronously
         try:
             verification_service = DomainVerificationService()
-            verification_service.verify_and_activate_domain(domain)
+            result = verification_service.verify_and_activate_domain(domain)
+
+            if result.get('success'):
+                return Response({
+                    'data': {
+                        'domain': serializer.data,
+                        'status': domain.status,
+                        'verification': result,
+                    },
+                    'message': 'Domain added, verified, and activated successfully!',
+                }, status=status.HTTP_201_CREATED)
 
             return Response({
                 'data': {
                     'domain': serializer.data,
-                    'status': domain.status
+                    'status': domain.status,
+                    'verification': result,
                 },
-                'message': 'Domain added and verified successfully!',
+                'message': result.get('message', 'Domain added but verification failed.'),
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -2012,9 +2183,11 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         """Activate a verified domain"""
         domain = self.get_object()
 
-        if domain.status not in [CustomDomain.Status.DNS_VERIFIED,
-                                 CustomDomain.Status.SSL_PENDING,
-                                 CustomDomain.Status.NGINX_PENDING]:
+        if domain.status not in [
+            CustomDomain.Status.VERIFIED,
+            CustomDomain.Status.SSL_PENDING,
+            CustomDomain.Status.FAILED,
+        ]:
             return Response({
                 'data': {},
                 'message': f'Domain cannot be activated. Current status: {domain.status}'
@@ -2113,7 +2286,7 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             return Response({
                 'data': {},
                 'message': 'Invalid verification token'
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=400)
 
         # If domain is already active
         if domain.status == CustomDomain.Status.ACTIVE:
@@ -2151,7 +2324,7 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
                         '1. Check your DNS CNAME record:',
                         f'   - Type: CNAME',
                         f'   - Host: {domain.domain}',
-                        f'   - Value: qrapi.cogniasystems.com',
+                        f'   - Value: {settings.CUSTOM_DOMAIN_CNAME_TARGET}',
                         '2. Wait for DNS propagation (up to 24 hours)',
                         '3. Try again after propagation',
                         '4. If using Cloudflare, ensure proxy is disabled (grey cloud)'
@@ -2166,52 +2339,47 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
         """Retry SSL provisioning for a domain"""
         domain = self.get_object()
 
-        if domain.status not in [CustomDomain.Status.SSL_PENDING,
-                                 CustomDomain.Status.DNS_VERIFIED]:
+        if domain.status not in [
+            CustomDomain.Status.SSL_PENDING,
+            CustomDomain.Status.VERIFIED,
+            CustomDomain.Status.FAILED,
+        ]:
             return Response({
                 'data': {},
                 'message': f'SSL provisioning cannot be retried. Current status: {domain.status}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        ssl_service = SSLProvisioningService(domain.domain)
-        result = ssl_service.provision_certificate()
-
-        if result['success']:
-            domain.ssl_verified = True
-            domain.ssl_issued_at = timezone.now()
-            domain.ssl_expires_at = result.get('expires_at')
-            domain.status = CustomDomain.Status.SSL_PENDING
-            domain.save()
-
-            # Try to continue the activation
-            verification_service = DomainVerificationService()
-            result = verification_service.verify_and_activate_domain(domain)
+        verification_service = DomainVerificationService()
+        result = verification_service.verify_and_activate_domain(domain)
+        if result.get('success'):
             return Response({
                 'data': result,
-                'message': result.get('message', 'SSL provisioning successful')
+                'message': result.get('message', 'SSL provisioning successful'),
             })
-        else:
-            domain.automation_error = result.get('error', 'SSL provisioning failed')
-            domain.save()
-            return Response({
-                'data': result,
-                'message': result.get('error', 'SSL provisioning failed')
-            }, status=status.HTTP_400_BAD_REQUEST)
+
+        domain.automation_error = result.get('error', 'SSL provisioning failed')
+        domain.save(update_fields=['automation_error', 'updated_at'])
+        return Response({
+            'data': result,
+            'message': result.get('error', 'SSL provisioning failed'),
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_destroy(self, instance):
-        """Soft delete domain"""
+        """Delete domain and remove the infrastructure created for it."""
         verification_service = DomainVerificationService()
-        deactivation_result = verification_service.deactivate_domain(instance)
-        ssl_service = SSLProvisioningService(instance.domain)
-        ssl_result = ssl_service.delete_certificate()
+        cleanup_result = verification_service.cleanup_domain_assets(instance)
 
-        instance.is_deleted = True
-        instance.status = CustomDomain.Status.DISABLED
-        instance.nginx_enabled = False
-        instance.ssl_verified = False
-        instance.automation_error = None
-        if not deactivation_result.get('success'):
-            instance.automation_error = deactivation_result.get('error', 'Nginx cleanup failed')
-        if not ssl_result.get('success'):
-            instance.automation_error = ssl_result.get('error', 'SSL cleanup failed')
-        instance.save()
+        if not cleanup_result.get('success'):
+            errors = cleanup_result.get('errors') or ['Domain cleanup failed']
+            instance.automation_error = '; '.join(errors)
+            instance.save(update_fields=['automation_error', 'updated_at'])
+            raise ValidationError(
+                {
+                    'domain': (
+                        'Domain was not deleted because cleanup failed: '
+                        + '; '.join(errors)
+                    )
+                }
+            )
+
+        instance.hard_delete()

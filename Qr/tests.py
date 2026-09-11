@@ -1,13 +1,128 @@
+import tempfile
+from unittest.mock import Mock, patch
+
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from Qr.models import Invitations, Project
+from Qr.models import CustomDomain, Invitations, Project
 from Qr.models import QRCode, QRScanSetting
 from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
+from Qr.services.domain_verification import DomainVerificationService
+
+
+class DomainVerificationFlowTests(SimpleTestCase):
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="customdomain.qrpac.com")
+    def test_expected_cname_uses_custom_domain_gateway(self):
+        service = DomainVerificationService()
+
+        self.assertEqual(service.expected_cname, "customdomain.qrpac.com")
+
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="http://customdomain.qrpac.com/")
+    def test_expected_cname_strips_protocol_and_path(self):
+        service = DomainVerificationService()
+
+        self.assertEqual(service.expected_cname, "customdomain.qrpac.com")
+
+    @override_settings(CUSTOM_DOMAIN_CNAME_TARGET="customdomain.qrpac.com")
+    def test_cname_verification_does_not_require_existing_http_site(self):
+        service = DomainVerificationService()
+        domain = type(
+            "DomainStub",
+            (),
+            {
+                "domain": "brand.example.com",
+                "status": None,
+                "verification_attempts": 0,
+                "last_verification_attempt": None,
+                "verified_at": None,
+                "save": lambda self: None,
+            },
+        )()
+
+        with patch.object(service, "verify_cname_record", return_value=True) as verify_cname:
+            with patch.object(service, "verify_http") as verify_http:
+                result = service.verify_domain(domain)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["method"], "cname")
+        self.assertEqual(domain.status, CustomDomain.Status.VERIFIED)
+        verify_cname.assert_called_once_with("brand.example.com")
+        verify_http.assert_not_called()
+
+    def test_acme_probe_confirms_public_challenge_file(self):
+        service = DomainVerificationService()
+        response = Mock(status_code=200)
+
+        def fake_get(url, timeout):
+            token = url.rsplit("/", 1)[-1]
+            response.text = f"ok-{token}"
+            return response
+
+        with tempfile.TemporaryDirectory() as webroot:
+            with patch("Qr.services.domain_verification.requests.get", side_effect=fake_get) as get:
+                result = service.verify_acme_challenge_path("brand.example.com", webroot)
+
+        self.assertTrue(result["success"])
+        self.assertIn("http://brand.example.com/.well-known/acme-challenge/", result["url"])
+        get.assert_called_once()
+
+    def test_acme_probe_reports_unreachable_challenge_file(self):
+        service = DomainVerificationService()
+        response = Mock(status_code=404, text="not found")
+
+        with tempfile.TemporaryDirectory() as webroot:
+            with patch("Qr.services.domain_verification.requests.get", return_value=response):
+                result = service.verify_acme_challenge_path("brand.example.com", webroot)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status_code"], 404)
+        self.assertIn("ACME challenge file was not reachable", result["error"])
+
+    def test_activation_stops_before_certbot_when_acme_probe_fails(self):
+        service = DomainVerificationService()
+        domain = type(
+            "DomainStub",
+            (),
+            {
+                "domain": "brand.example.com",
+                "status": None,
+                "verification_attempts": 0,
+                "last_verification_attempt": None,
+                "verified_at": None,
+                "dns_verified_at": None,
+                "automation_error": None,
+                "save": lambda self: None,
+            },
+        )()
+
+        with patch.object(service, "verify_domain", return_value={"success": True}):
+            with patch("Qr.services.domain_verification.NginxConfigService") as nginx:
+                nginx_service = nginx.return_value
+                nginx_service.write_config.return_value = {"success": True}
+                nginx_service.enable_site.return_value = {"success": True}
+                nginx.full_nginx_reload.return_value = {"success": True}
+                with patch.object(
+                    service,
+                    "verify_acme_challenge_path",
+                    return_value={
+                        "success": False,
+                        "error": "challenge unreachable",
+                        "url": "http://brand.example.com/.well-known/acme-challenge/check",
+                        "status_code": 404,
+                    },
+                ):
+                    with patch("Qr.services.domain_verification.SSLProvisioningService") as ssl:
+                        result = service.verify_and_activate_domain(domain)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["step"], "acme_challenge")
+        self.assertEqual(domain.status, CustomDomain.Status.SSL_PENDING)
+        self.assertEqual(domain.automation_error, "challenge unreachable")
+        ssl.assert_not_called()
 
 
 class ProjectInvitationReceiverListTests(TestCase):
@@ -156,6 +271,60 @@ class QRCodeListTests(TestCase):
         self.assertTrue(response.data["data"])
         self.assertEqual(response.data["data"][0]["domain_name"], "https://example.com")
 
+    def test_qr_list_excludes_drafts(self):
+        draft_qr = QRCode.objects.create(
+            name="Draft QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            is_draft=True,
+            status=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get("/api/v1.1/user/qr/")
+
+        self.assertEqual(response.status_code, 200)
+        qr_ids = {qr["id"] for qr in response.data["data"]}
+        self.assertNotIn(str(draft_qr.id), qr_ids)
+        self.assertIn(str(self.qr_code.id), qr_ids)
+
+    def test_draft_qr_can_be_updated(self):
+        draft_qr = QRCode.objects.create(
+            name="Unsaved QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            is_draft=True,
+            status=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.patch(
+            f"/api/v1.1/user/qr/{draft_qr.id}/",
+            {"QRCode": {"name": "Saved draft"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        draft_qr.refresh_from_db()
+        self.assertEqual(draft_qr.name, "Saved draft")
+
+    def test_draft_qr_cannot_be_scanned_publicly(self):
+        draft_qr = QRCode.objects.create(
+            name="Unpublished QR",
+            qr_type=self.qr_type,
+            created_by=self.user,
+            is_draft=True,
+            status=True,
+        )
+
+        response = self.client.post(
+            f"/api/v1.1/user/qr/{draft_qr.short_code}/scan/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
 
 class QRAnalyticsDetailSummaryTests(TestCase):
     def setUp(self):
@@ -251,3 +420,65 @@ class CustomDomainLimitTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.data["message"], "Custom domain limit reached for your package.")
         self.assertEqual(response.data["data"]["limit"], 0)
+
+
+class CustomDomainDeleteTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="domain-delete@example.com",
+            password="password123",
+            full_name="Domain Delete User",
+            phone="5555555556",
+        )
+
+    def test_delete_domain_cleans_assets_and_removes_database_row(self):
+        domain = CustomDomain.objects.create(
+            user=self.user,
+            domain="delete.example.com",
+            status=CustomDomain.Status.ACTIVE,
+            nginx_enabled=True,
+            ssl_verified=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("Qr.normal_user.views.DomainVerificationService.cleanup_domain_assets") as cleanup:
+            cleanup.return_value = {
+                "success": True,
+                "errors": [],
+                "nginx": {"success": True},
+                "ssl": {"success": True},
+            }
+
+            response = self.client.delete(f"/api/v1.1/user/domains/{domain.id}/")
+
+        self.assertEqual(response.status_code, 204)
+        cleanup.assert_called_once()
+        self.assertFalse(CustomDomain._base_manager.filter(id=domain.id).exists())
+
+    def test_delete_domain_preserves_row_when_cleanup_fails(self):
+        domain = CustomDomain.objects.create(
+            user=self.user,
+            domain="cleanup-fails.example.com",
+            status=CustomDomain.Status.ACTIVE,
+            nginx_enabled=True,
+            ssl_verified=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        with patch("Qr.normal_user.views.DomainVerificationService.cleanup_domain_assets") as cleanup:
+            cleanup.return_value = {
+                "success": False,
+                "errors": ["SSL cleanup failed"],
+                "nginx": {"success": True},
+                "ssl": {"success": False},
+            }
+
+            response = self.client.delete(f"/api/v1.1/user/domains/{domain.id}/")
+
+        self.assertEqual(response.status_code, 400)
+        domain.refresh_from_db()
+        self.assertFalse(domain.is_deleted)
+        self.assertEqual(domain.automation_error, "SSL cleanup failed")

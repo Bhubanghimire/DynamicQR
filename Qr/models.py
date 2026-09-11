@@ -29,6 +29,7 @@ class QRCode(SoftDeletable):
     link_name = models.CharField(max_length=200, null=True, blank=True, unique=True, db_index=True)
     qr_type = models.ForeignKey(ConfigChoice, on_delete=models.RESTRICT, related_name='qr_type')
     status = models.BooleanField(default=True)
+    is_draft = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.RESTRICT)
 
     def __str__(self):
@@ -57,6 +58,10 @@ class QRCode(SoftDeletable):
         setting = QRScanSetting.objects.filter(qr_code=self).first()
         return setting.domain if setting else None
 
+
+
+    class Meta:
+        ordering = ["-created_at"]
 
 class QRCodeData(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
@@ -403,7 +408,7 @@ class CustomDomain(SoftDeletable):
         return self.status in [self.Status.PENDING, self.Status.VERIFYING]
 
     def get_verification_url(self):
-        return f"https://{settings.BASE_DOMAIN}/api/domains/verify/{self.verification_token}"
+        return f"https://{settings.BASE_DOMAIN}/api/v1.1/user/domains/verify/{self.verification_token}/"
 
     def get_cname_target(self):
         return settings.CUSTOM_DOMAIN_CNAME_TARGET

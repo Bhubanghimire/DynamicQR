@@ -1,5 +1,6 @@
 # services/domain_verification.py
 import os
+import secrets
 
 import dns.resolver
 import dns.exception
@@ -34,6 +35,9 @@ class DomainVerificationService:
         self.resolver.lifetime = 10
 
         self.expected_ip = settings.CUSTOM_DOMAIN_IP
+        self.expected_cname = self.normalize_domain(
+            getattr(settings, "CUSTOM_DOMAIN_CNAME_TARGET", "")
+        )
 
         # Cache for DNS lookups
         self.dns_cache_ttl = 300  # 5 minutes
@@ -42,7 +46,10 @@ class DomainVerificationService:
         """Normalize domain string"""
         if not domain:
             return domain
-        return domain.strip().lower().rstrip(".")
+        domain = domain.strip().lower()
+        domain = domain.removeprefix("https://").removeprefix("http://")
+        domain = domain.split("/")[0]
+        return domain.rstrip(".")
 
     def get_a_records(self, domain: str, use_cache: bool = True) -> List[str]:
         domain = self.normalize_domain(domain)
@@ -119,12 +126,51 @@ class DomainVerificationService:
             logger.error(f"Error resolving TXT for {domain}: {str(e)}")
             return []
 
-    def verify_a_record(self, domain: str) -> bool:
+    def get_cname_records(self, domain: str, use_cache: bool = True) -> List[str]:
+        """Get CNAME records for a domain"""
         domain = self.normalize_domain(domain)
+        cache_key = f"dns_cname_{domain}"
 
-        records = self.get_a_records(domain)
+        if use_cache:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
 
-        return settings.CUSTOM_DOMAIN_IP in records
+        try:
+            answers = self.resolver.resolve(
+                domain,
+                "CNAME",
+                raise_on_no_answer=True,
+            )
+
+            records = [
+                self.normalize_domain(str(answer.target).rstrip("."))
+                for answer in answers
+            ]
+
+            if use_cache:
+                cache.set(cache_key, records, self.dns_cache_ttl)
+
+            return records
+
+        except (
+            dns.resolver.NoAnswer,
+            dns.resolver.NXDOMAIN,
+            dns.resolver.NoNameservers,
+            dns.resolver.Timeout,
+        ):
+            return []
+        except Exception as e:
+            logger.error(f"Error resolving CNAME for {domain}: {str(e)}")
+            return []
+
+    def verify_cname_record(self, domain: str) -> bool:
+        domain = self.normalize_domain(domain)
+        if not self.expected_cname:
+            return False
+
+        records = self.get_cname_records(domain)
+        return self.expected_cname in records
 
     def verify_txt(self, domain: str, token: str) -> bool:
         """Verify TXT record contains verification token"""
@@ -135,9 +181,9 @@ class DomainVerificationService:
         return any(expected in record for record in records)
 
     def verify_http(self, domain: str) -> bool:
-        """Verify domain through HTTP endpoint"""
+        """Verify the domain serves the frontend over HTTP/HTTPS"""
         domain = self.normalize_domain(domain)
-        verification_path = "/.well-known/domain-verify"
+        verification_path = "/"
 
         try:
             # Try HTTPS first
@@ -145,16 +191,14 @@ class DomainVerificationService:
             response = requests.get(url, timeout=5, verify=True)
 
             if response.status_code == 200:
-                data = response.json()
-                return data.get('verified', False)
+                return True
 
             # Fallback to HTTP
             url = f"http://{domain}{verification_path}"
             response = requests.get(url, timeout=5)
 
             if response.status_code == 200:
-                data = response.json()
-                return data.get('verified', False)
+                return True
 
             return False
 
@@ -163,7 +207,7 @@ class DomainVerificationService:
             return False
 
     def verify_domain(self, domain_instance) -> Dict[str, Any]:
-        """Verify domain using multiple methods"""
+        """Verify that the custom domain points to the configured frontend domain."""
         if isinstance(domain_instance, str):
             try:
                 domain_instance = CustomDomain.objects.get(domain=domain_instance)
@@ -174,34 +218,29 @@ class DomainVerificationService:
                 }
 
         domain = self.normalize_domain(domain_instance.domain)
-        token = domain_instance.verification_token
-
         # Update status to verifying
         domain_instance.status = CustomDomain.Status.VERIFYING
         domain_instance.verification_attempts += 1
         domain_instance.last_verification_attempt = timezone.now()
         domain_instance.save()
 
-        # Try multiple verification methods
         verification_results = {
-            'a': self.verify_a_record(domain),
-            'http': self.verify_http(domain),
+            'cname': self.verify_cname_record(domain),
+            'expected_cname': self.expected_cname,
         }
 
-        # Consider verified if any method succeeds
-        is_verified = any(verification_results.values())
+        is_verified = verification_results['cname']
 
         if is_verified:
-            domain_instance.status = CustomDomain.Status.ACTIVE
+            domain_instance.status = CustomDomain.Status.VERIFIED
             domain_instance.verified_at = timezone.now()
-            domain_instance.activated_at = timezone.now()
             domain_instance.save()
 
             return {
                 'success': True,
-                'message': 'Domain verified successfully',
+                'message': 'Domain CNAME verified successfully',
                 'domain': domain,
-                'method': next((k for k, v in verification_results.items() if v), 'unknown'),
+                'method': 'cname',
                 'verification_results': verification_results
             }
         else:
@@ -210,7 +249,7 @@ class DomainVerificationService:
 
             return {
                 'success': False,
-                'message': 'DNS verification failed. Please check your DNS records.',
+                'message': 'DNS verification failed. Please check your CNAME record.',
                 'domain': domain,
                 'attempts': domain_instance.verification_attempts,
                 'verification_results': verification_results
@@ -244,6 +283,50 @@ class DomainVerificationService:
             'results': results
         }
 
+    def verify_acme_challenge_path(self, domain: str, webroot_path: str) -> Dict[str, Any]:
+        """Verify that HTTP-01 challenge files are reachable before running Certbot."""
+        domain = self.normalize_domain(domain)
+        token = f"projecthub-acme-check-{secrets.token_urlsafe(12)}"
+        expected_body = f"ok-{token}"
+        challenge_dir = os.path.join(webroot_path, ".well-known", "acme-challenge")
+        challenge_path = os.path.join(challenge_dir, token)
+        challenge_url = f"http://{domain}/.well-known/acme-challenge/{token}"
+
+        try:
+            os.makedirs(challenge_dir, exist_ok=True)
+            with open(challenge_path, "w") as challenge_file:
+                challenge_file.write(expected_body)
+
+            response = requests.get(challenge_url, timeout=10)
+            if response.status_code == 200 and response.text.strip() == expected_body:
+                return {
+                    'success': True,
+                    'url': challenge_url,
+                    'status_code': response.status_code,
+                }
+
+            return {
+                'success': False,
+                'url': challenge_url,
+                'status_code': response.status_code,
+                'error': (
+                    'ACME challenge file was not reachable from the public domain. '
+                    f'Expected body "{expected_body}", got "{response.text[:120]}".'
+                ),
+            }
+        except Exception as exc:
+            return {
+                'success': False,
+                'url': challenge_url,
+                'error': str(exc),
+            }
+        finally:
+            try:
+                if os.path.exists(challenge_path):
+                    os.remove(challenge_path)
+            except OSError:
+                logger.warning("Failed to remove ACME probe file for %s", domain)
+
     # services/domain_verification.py
 
     def verify_and_activate_domain(self, domain_instance):
@@ -263,7 +346,7 @@ class DomainVerificationService:
         root_path = f"/var/www/qrpac"
         nginx_result = nginx_service.write_config(context={'root': root_path})
         if not nginx_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = nginx_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_write', 'error': nginx_result.get('error')}
@@ -271,17 +354,30 @@ class DomainVerificationService:
         # Enable and reload Nginx (HTTP now serves the domain)
         enable_result = nginx_service.enable_site()
         if not enable_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = enable_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_enable', 'error': enable_result.get('error')}
 
         reload_result = NginxConfigService.full_nginx_reload()
         if not reload_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = reload_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_reload', 'error': reload_result.get('error')}
+
+        acme_result = self.verify_acme_challenge_path(domain_instance.domain, root_path)
+        if not acme_result['success']:
+            domain_instance.status = CustomDomain.Status.SSL_PENDING
+            domain_instance.automation_error = acme_result.get('error')
+            domain_instance.save()
+            return {
+                'success': False,
+                'step': 'acme_challenge',
+                'error': acme_result.get('error'),
+                'url': acme_result.get('url'),
+                'status_code': acme_result.get('status_code'),
+            }
 
         # Step 3: Provision SSL using webroot
         ssl_service = SSLProvisioningService(domain_instance.domain)
@@ -313,7 +409,7 @@ class DomainVerificationService:
             }
         )
         if not ssl_nginx_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = ssl_nginx_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_ssl_write', 'error': ssl_nginx_result.get('error')}
@@ -321,7 +417,7 @@ class DomainVerificationService:
         # Reload Nginx again (now with SSL)
         reload_result = NginxConfigService.full_nginx_reload()
         if not reload_result['success']:
-            domain_instance.status = CustomDomain.Status.NGINX_PENDING
+            domain_instance.status = CustomDomain.Status.FAILED
             domain_instance.automation_error = reload_result.get('error')
             domain_instance.save()
             return {'success': False, 'step': 'nginx_reload_ssl', 'error': reload_result.get('error')}
@@ -368,6 +464,40 @@ class DomainVerificationService:
             'message': f'Domain {domain_instance.domain} has been deactivated'
         }
 
+    def cleanup_domain_assets(self, domain_instance):
+        """Remove Nginx and SSL assets created for a custom domain."""
+        nginx_service = NginxConfigService(domain_instance)
+        ssl_service = SSLProvisioningService(domain_instance.domain)
+
+        nginx_result = nginx_service.cleanup_site()
+        reload_result = {'success': True, 'message': 'Nginx reload skipped'}
+        if nginx_result.get('success'):
+            reload_result = NginxConfigService.full_nginx_reload()
+
+        ssl_result = ssl_service.delete_certificate()
+
+        success = (
+            nginx_result.get('success')
+            and reload_result.get('success')
+            and ssl_result.get('success')
+        )
+        errors = []
+        if not nginx_result.get('success'):
+            errors.extend(nginx_result.get('errors') or [nginx_result.get('error', 'Nginx cleanup failed')])
+        if not reload_result.get('success'):
+            errors.append(reload_result.get('error', 'Nginx reload failed'))
+        if not ssl_result.get('success'):
+            errors.append(ssl_result.get('error', 'SSL cleanup failed'))
+
+        return {
+            'success': success,
+            'domain': domain_instance.domain,
+            'nginx': nginx_result,
+            'nginx_reload': reload_result,
+            'ssl': ssl_result,
+            'errors': errors,
+        }
+
     def get_domain_status(self, domain):
         """Get detailed domain status"""
         try:
@@ -396,6 +526,7 @@ class DomainVerificationService:
         """Clear DNS cache for a specific domain or all domains"""
         if domain:
             cache.delete(f"dns_a_{domain}")
+            cache.delete(f"dns_cname_{domain}")
             cache.delete(f"dns_txt_{domain}")
         else:
             # Clear all domain caches (use with caution)
@@ -406,7 +537,10 @@ def normalize_domain(domain: str) -> str:
     """Helper function to normalize domain"""
     if not domain:
         return domain
-    return domain.strip().lower().rstrip(".")
+    domain = domain.strip().lower()
+    domain = domain.removeprefix("https://").removeprefix("http://")
+    domain = domain.split("/")[0]
+    return domain.rstrip(".")
 
 
 """

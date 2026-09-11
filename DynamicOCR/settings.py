@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 import os
 from pathlib import Path
+
+from celery.concurrency import custom
 from decouple import config
 # import dj_database_url
 import environ
@@ -306,7 +308,7 @@ REFRESH_COOKIE_DOMAIN = config("REFRESH_COOKIE_DOMAIN", default=None)
 FRONTEND_URL = config("FRONTEND_URL", default=None)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
-CUSTOM_DOMAIN_CNAME_TARGET="api.qrpac.com"
+CUSTOM_DOMAIN_CNAME_TARGET="customdomain.qrpac.com"
 BASE_DOMAIN="qrpac.com"
 DODO_PAYMENTS_API_KEY = config("DODO_API_KEY", default=None)
 # print(DODO_PAYMENTS_API_KEY)
@@ -349,5 +351,4 @@ DODO_PRODUCT_TAX_CATEGORY = config(
     "DODO_PRODUCT_TAX_CATEGORY",
     default="saas",
 )
-
-CUSTOM_DOMAIN_IP = "64.227.156.219"
+CUSTOM_DOMAIN_IP = os.environ.get('CUSTOM_DOMAIN_IP', '')
