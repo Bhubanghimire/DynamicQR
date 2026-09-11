@@ -59,6 +59,10 @@ class QRCode(SoftDeletable):
         return setting.domain if setting else None
 
 
+
+    class Meta:
+        ordering = ["-created_at"]
+
 class QRCodeData(SoftDeletable):
     qr_code = models.ForeignKey(QRCode, on_delete=models.CASCADE)
     content_json = models.JSONField()
