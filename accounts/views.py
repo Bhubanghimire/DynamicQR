@@ -68,6 +68,16 @@ def set_refresh_cookie(response, refresh_token):
 
 class AccountsAuthSchema(AutoSchema):
     def get_tags(self, path, method):
+        if '/api/v1.1/admin/subscriptions/' in path:
+            return ["Admin Subscriptions"]
+        if '/api/v1.1/admin/analytics/' in path:
+            return ["Admin Analytics"]
+        if '/api/v1.1/admin/projects/' in path:
+            return ["Admin Projects"]
+        if '/api/v1.1/admin/system/' in path:
+            return ["Admin System"]
+        if '/api/v1.1/admin/accounts/' in path:
+            return ["Admin Accounts"]
         return ["Accounts"]
 
     def get_operation_id(self, path, method):
@@ -527,18 +537,12 @@ def _get_dev_social_user():
 
     return user
 
-class GoogleLoginRedirectSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class GoogleLoginRedirectSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_google_login"
 
 
-class GoogleLoginCompleteSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class GoogleLoginCompleteSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_google_login_complete"
 
@@ -593,10 +597,7 @@ class GoogleLoginCompleteAPIView(APIView):
             f"{frontend_url}{separator}code={raw_code}"
         )
 
-class GoogleOAuthExchangeSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class GoogleOAuthExchangeSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_google_oauth_exchange"
 
@@ -611,10 +612,7 @@ class GoogleOAuthExchangeSchema(AutoSchema):
         return super().get_response_serializer(path, method)
 
 
-class ContactUsSubmitSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class ContactUsSubmitSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_contact_us_submit"
 
@@ -629,10 +627,7 @@ class ContactUsSubmitSchema(AutoSchema):
         return super().get_response_serializer(path, method)
 
 
-class WorkspaceSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class WorkspaceSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return f"accounts_workspace_{method.lower()}"
 

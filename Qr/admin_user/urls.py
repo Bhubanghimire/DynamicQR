@@ -5,7 +5,7 @@ from accounts.views import AuthViewSet
 app_name = "accounts_admin"
 
 account_router = DefaultRouter()
-account_router.register(r'auth', AuthViewSet, basename='auth')
+# account_router.register(r'auth', AuthViewSet, basename='auth')
 # account_router.register(r'main_dashboard', MainViewSet, basename='main_dashboard')
 # account_router.register(r'profile', ProfileViewSet, basename='profile')
 # account_router.register(r'chat', ChatViewSet, basename='chat')
