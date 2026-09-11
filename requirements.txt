@@ -1,6 +1,10 @@
 Django==4.2.30
 Pillow==11.3.0
 PyJWT
+# Python builds linked against LibreSSL (including the current local Python
+# 3.9 build) are incompatible with urllib3 2.x. Keep the compatible release
+# line until the runtime is upgraded to OpenSSL 1.1.1+.
+urllib3<2
 
 djangorestframework
 inflection
