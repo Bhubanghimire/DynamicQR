@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
-
 from accounts.adapters import GoogleFirstExistingUserSocialAccountAdapter
 from accounts.models import User
 
