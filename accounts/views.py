@@ -144,6 +144,7 @@ class AuthViewSet(viewsets.ViewSet):
         'forget_password': [AllowAny],
         'otp_verify': [AllowAny],
         'change_password': [IsAuthenticated],
+        'logout': [AllowAny],
     }
 
     def get_permissions(self):
@@ -155,12 +156,6 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['POST'], url_path='refresh')
     @csrf_exempt
     def refresh(self, request):
-        # serializer = RefreshSerializer(data=refresh_token)
-        # serializer.is_valid(raise_exception=True)
-        # token = serializer.validated_data['refresh_token']
-        # if token is None:
-        #     return Response({"message": "please send refresh token in payload"}, status=HTTP_400_BAD_REQUEST)
-
         refresh_token = request.COOKIES.get("refresh_token")
 
         if not refresh_token:
@@ -193,7 +188,9 @@ class AuthViewSet(viewsets.ViewSet):
             ).first()
 
         if session is None:
-            session = create_user_session(user, request)
+            # FIX: Do NOT create a new session here. If the session is revoked or missing,
+            # the refresh token is invalid and the user must login again.
+            raise exceptions.AuthenticationFailed('Session revoked or not found. Please login again.')
 
         access_token = generate_access_token(user, session.session_id)
         refresh_token = generate_refresh_token(user, session.session_id)
@@ -203,12 +200,33 @@ class AuthViewSet(viewsets.ViewSet):
                 "data": {
                     "access_token": access_token,
                 },
-                "message": "Logged in successfully."
+                "message": "Tokens refreshed successfully."
             },
             status=HTTP_200_OK,
         )
 
         return set_refresh_cookie(response, refresh_token)
+
+    @action(detail=False, methods=['POST'], url_path='logout')
+    @csrf_exempt
+    def logout(self, request):
+        refresh_token = request.COOKIES.get("refresh_token")
+        
+        if refresh_token:
+            try:
+                payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=['HS256'])
+                session_id = payload.get("session_id")
+                if session_id:
+                    UserSession.objects.filter(session_id=session_id).update(is_revoked=True)
+            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+                pass # Token is already invalid, just proceed to clear cookie
+
+        response = Response(
+            {"message": "Logged out successfully."},
+            status=HTTP_200_OK
+        )
+        response.delete_cookie("refresh_token", path="/")
+        return response
 
     @action(detail=False, methods=['POST'], url_path='login')
     def login(self, request):
