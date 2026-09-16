@@ -100,6 +100,40 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['get'], url_path='qr-type-usage')
+    def qr_type_usage(self, request):
+        try:
+            result = AdminDashboardService.get_qr_type_usage(request)
+            return Response(
+                result,
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "data": [],
+                    "message": f"Error fetching QR type usage: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['get'], url_path='top-performing-qrs')
+    def top_performing_qrs(self, request):
+        try:
+            result = AdminDashboardService.get_top_performing_qrs(request)
+            return Response(
+                result,
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "data": [],
+                    "message": f"Error fetching top performing QR codes: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'], url_path='os-browser-share')
     def os_browser_share(self, request):
         try:

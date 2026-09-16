@@ -2,13 +2,14 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional, Dict, Any
 
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from accounts.models import User
 from Qr.models import QRCode
 from analytics.models import ScanEvent
 from subscriptions.models import Invoice
+from system.models import ConfigChoice
 
 @dataclass(frozen=True)
 class DateRange:
@@ -100,6 +101,65 @@ class AdminDashboardService:
         return {
             "data": timeline,
             "message": "QR generation trend fetched successfully."
+        }
+
+    @classmethod
+    def get_qr_type_usage(cls, request) -> Dict[str, Any]:
+        qr_type_counts = {
+            row["qr_type_id"]: row["count"]
+            for row in QRCode.objects.values("qr_type_id").annotate(count=Count("id"))
+        }
+        total_qr = sum(qr_type_counts.values())
+
+        qr_types = ConfigChoice.objects.filter(
+            category__name="qr_type",
+        ).order_by("name")
+
+        data = []
+        for qr_type in qr_types:
+            count = qr_type_counts.get(qr_type.id, 0)
+            percentage = round((count / total_qr) * 100, 2) if total_qr else 0
+            data.append(
+                {
+                    "qr_type_id": str(qr_type.id),
+                    "qr_type": qr_type.name,
+                    "count": count,
+                    "percentage": percentage,
+                }
+            )
+
+        return {
+            "data": data,
+            "message": "QR type usage fetched successfully.",
+        }
+
+    @classmethod
+    def get_top_performing_qrs(cls, request) -> Dict[str, Any]:
+        try:
+            limit = int(request.query_params.get("limit", 10))
+        except (TypeError, ValueError):
+            limit = 10
+        limit = max(1, min(limit, 100))
+
+        qrs = (
+            QRCode.objects.select_related("qr_type")
+            .annotate(total_scans=Count("scan_events"))
+            .order_by("-total_scans", "name", "id")[:limit]
+        )
+
+        data = [
+            {
+                "qr_id": str(qr.id),
+                "name": qr.name,
+                "type": qr.qr_type.name if qr.qr_type else None,
+                "total_scans": qr.total_scans,
+            }
+            for qr in qrs
+        ]
+
+        return {
+            "data": data,
+            "message": "Top performing QR codes fetched successfully.",
         }
 
     @classmethod
