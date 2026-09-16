@@ -59,6 +59,50 @@ class AdminDashboardService:
         return None
 
     @classmethod
+    def get_qr_generation_trend(cls, request) -> Dict[str, Any]:
+        period = request.query_params.get("period")
+        date_range = cls.resolve_date_range(period, request)
+
+        if date_range is None:
+            return {
+                "data": [],
+                "message": "No date range provided. Please specify a period (e.g., today, 30d, custom)."
+            }
+
+        start_date = date_range.start_date
+        end_date = date_range.end_date
+
+        from Qr.models import QRCode
+        from django.db.models import Count
+        from django.db.models.functions import TruncDate
+
+        # Count QRs created per day
+        qrs = (
+            QRCode.objects.filter(created_at__date__range=(start_date, end_date))
+            .annotate(date=TruncDate("created_at"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .order_by("date")
+        )
+
+        qr_by_date = {row["date"]: row["count"] for row in qrs}
+
+        # Fill gaps to ensure continuous timeline
+        timeline = []
+        current_date = start_date
+        while current_date <= end_date:
+            timeline.append({
+                "date": current_date.isoformat(),
+                "count": qr_by_date.get(current_date, 0)
+            })
+            current_date += timedelta(days=1)
+
+        return {
+            "data": timeline,
+            "message": "QR generation trend fetched successfully."
+        }
+
+    @classmethod
     def get_top_power_users(cls, request) -> Dict[str, Any]:
         from accounts.models import User
         from subscriptions.models import Subscription

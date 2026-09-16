@@ -83,6 +83,23 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['get'], url_path='qr-generation-trend')
+    def code_generation_trend(self, request):
+        try:
+            result = AdminDashboardService.get_qr_generation_trend(request)
+            return Response(
+                result,
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "data": [],
+                    "message": f"Error fetching top power users: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'], url_path='os-browser-share')
     def os_browser_share(self, request):
         try:

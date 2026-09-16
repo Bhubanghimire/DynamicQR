@@ -40,6 +40,37 @@ class QRAnalyticsSummaryService:
         }
 
     @classmethod
+    def get_distributions(cls, qr_queryset, date_range):
+        from django.db.models import Count
+        from analytics.models import ScanEvent
+
+        qr_ids = qr_queryset.values_list("id", flat=True)
+        scan_filter = {"qr_id__in": qr_ids}
+        if date_range:
+            scan_filter['scanned_at__date__gte'] = date_range.start_date
+            scan_filter['scanned_at__date__lte'] = date_range.end_date
+
+        def get_dist(field_name):
+            data = (
+                ScanEvent.objects.filter(**scan_filter)
+                .values(field_name)
+                .annotate(count=Count('id'))
+                .order_by('-count')
+            )
+            return [
+                {"name": item[field_name] or "Unknown", "count": item['count']}
+                for item in data
+            ]
+
+        return {
+            "os": get_dist('os'),
+            "browser": get_dist('browser'),
+            "device": get_dist('device_type'),
+            "country": get_dist('country'),
+            "city": get_dist('city'),
+        }
+
+    @classmethod
     def timeline(cls, qr_queryset, request):
         period = request.query_params.get("period")
         date_range = DashboardSummaryService._resolve_date_range(period, request)
