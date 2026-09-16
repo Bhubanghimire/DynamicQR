@@ -59,6 +59,63 @@ class AdminDashboardService:
         return None
 
     @classmethod
+    def get_plan_metrics(cls, request) -> Dict[str, Any]:
+        period = request.query_params.get("period")
+        date_range = cls.resolve_date_range(period, request)
+
+        from subscriptions.models import Package, Subscription
+        from analytics.models import ScanEvent
+        from django.db.models import Count
+
+        # 1. Get all active packages
+        packages = Package.objects.filter(is_active=True)
+        package_list = list(packages)
+
+        # 2. Get all active subscriptions to map users to packages
+        # Subscription -> PackagePlan -> Package
+        active_subs = Subscription.objects.filter(
+            status='active',
+            package_plan__package__is_active=True
+        ).values('user_id', 'package_plan__package_id')
+
+        user_to_package_map = {sub['user_id']: sub['package_plan__package_id'] for sub in active_subs}
+
+        # 3. Calculate user count per package
+        package_user_counts = {}
+        for sub in active_subs:
+            pkg_id = sub['package_plan__package_id']
+            package_user_counts[pkg_id] = package_user_counts.get(pkg_id, 0) + 1
+
+        # 4. Calculate scan count per package
+        scan_filter = {}
+        if date_range:
+            scan_filter['scanned_at__date__gte'] = date_range.start_date
+            scan_filter['scanned_at__date__lte'] = date_range.end_date
+
+        # Get scans and their creator (User)
+        scans = ScanEvent.objects.filter(**scan_filter).values_list('qr__created_by_id', flat=True)
+
+        package_scan_counts = {}
+        for creator_id in scans:
+            pkg_id = user_to_package_map.get(creator_id)
+            if pkg_id:
+                package_scan_counts[pkg_id] = package_scan_counts.get(pkg_id, 0) + 1
+
+        # 5. Assemble final data
+        metrics = []
+        for pkg in package_list:
+            metrics.append({
+                "package": pkg.title,
+                "user_count": package_user_counts.get(pkg.id, 0),
+                "scan_count": package_scan_counts.get(pkg.id, 0),
+            })
+
+        return {
+            "data": metrics,
+            "message": "Plan metrics fetched successfully."
+        }
+
+    @classmethod
     def get_user_activities(cls, request) -> Dict[str, Any]:
         period = request.query_params.get("period")
         date_range = cls.resolve_date_range(period, request)
