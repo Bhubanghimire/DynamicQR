@@ -202,6 +202,31 @@ class UserSessionSerializer(serializers.ModelSerializer):
             return False
         return str(payload.get('session_id')) == str(obj.session_id)
 
+class UserAdminCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+    full_name = serializers.CharField(required=False, allow_blank=True, default="")
+    phone = serializers.CharField(required=False, allow_blank=True, default="")
+    birth_date = serializers.DateField(required=False, allow_null=True)
+    gender = serializers.PrimaryKeyRelatedField(required=False, allow_null=True, queryset=ConfigChoice.objects.all())
+
+    class Meta:
+        model = User
+        fields = [
+            "email",
+            "password",
+            "full_name",
+            "phone",
+            "birth_date",
+            "gender",
+        ]
+
+    def create(self, validated_data):
+        # Set default user_type to normal user
+        # Using the same fallback ID used in register view
+        validated_data['user_type_id'] = "004dbed1-bb73-496a-b5f2-a244b42de122"
+        user = User.objects.create_user(**validated_data)
+        return user
+
 class UserAdminSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
@@ -240,3 +265,33 @@ class UserAdminSerializer(serializers.ModelSerializer):
 
     def get_joined_date(self, obj):
         return obj.date_joined
+
+class UserAdminDetailSerializer(ProfileDetailSerializer):
+    current_package = serializers.SerializerMethodField()
+
+    class Meta(ProfileDetailSerializer.Meta):
+        fields = ProfileDetailSerializer.Meta.fields + ["current_package"]
+
+    def get_current_package(self, obj):
+        from subscriptions.models import Subscription
+        subscription = Subscription.get_active_subscription_for_user(obj)
+        if not subscription:
+            return None
+
+        plan = subscription.package_plan
+        package = plan.package if plan else None
+
+        return {
+            "package_title": package.title if package else None,
+            "package_description": package.description if package else None,
+            "price": plan.price if plan else None,
+            "currency": plan.currency if plan else None,
+            "max_qrs": plan.max_qrs if plan else None,
+            "max_scans": plan.max_scans if plan else None,
+            "max_team_members": plan.max_team_members if plan else None,
+            "max_bulk_upload": plan.max_bulk_upload if plan else None,
+            "max_domain_add": plan.max_domain_add if plan else None,
+            "status": subscription.status,
+            "expires_at": subscription.expires_at,
+            "started_at": subscription.started_at,
+        }
