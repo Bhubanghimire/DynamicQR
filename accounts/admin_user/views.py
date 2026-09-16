@@ -12,6 +12,7 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
 
+    #
     @action(detail=True, methods=['post'])
     def disable(self, request, pk=None):
         user = self.get_object()

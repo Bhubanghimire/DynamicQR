@@ -1,35 +1,24 @@
-
 from rest_framework import serializers
 from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, UserSession, Workspace
 from system.models import ConfigChoice
-
-
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
-
 class GoogleLoginSerializer(serializers.Serializer):
     code = serializers.CharField()
-
 
 class GoogleOAuthExchangeSerializer(serializers.Serializer):
     code = serializers.CharField()
 
-
 class RefreshSerializer(serializers.Serializer):
     refresh_token = serializers.CharField()
-
-
-
-
 
 class SendOtpSerializer(serializers.ModelSerializer):
     class Meta:
         model = OTP
         fields = ["email"]
-
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -53,22 +42,18 @@ class RegisterSerializer(serializers.ModelSerializer):
             "user_type",
         ]
 
-
 class ForgetPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
     new_password = serializers.CharField(write_only=True)
 
-
 class OtpVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
 
-
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)
-
 
 class ProfileDetailSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
@@ -108,7 +93,6 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
             return None
         return WorkspaceSerializer(workspace, context=self.context).data
 
-
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
@@ -128,38 +112,31 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             "is_two_factor_enabled",
         ]
 
-
 class ProfileImageUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["profile"]
 
-
 class TokenResponseSerializer(serializers.Serializer):
     data = serializers.DictField()
     message = serializers.CharField()
 
-
 class MessageResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
-
 
 class ChangePasswordResponseSerializer(serializers.Serializer):
     data = serializers.DictField()
     message = serializers.CharField()
-
 
 class ContactUsSubmitSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContactUs
         fields = ['full_name', 'email', 'phone', 'subject', 'message']
 
-
 class FAQListSerializer(serializers.ModelSerializer):
     class Meta:
         model = FAQ
         fields = ['id', 'question', 'answer']
-
 
 class NotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -170,7 +147,6 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             'product_updates',
             'security_alerts',
         ]
-
 
 class WorkspaceSerializer(serializers.ModelSerializer):
     active_domain = serializers.SerializerMethodField()
@@ -201,8 +177,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             return None
 
         from Qr.serializers import CustomDomainSerializer
-        return {"id":domain.id, "name":domain.domain} #CustomDomainSerializer(domain, context=self.context).data
-
+        return {"id":domain.id, "name":domain.domain}
 
 class UserSessionSerializer(serializers.ModelSerializer):
     is_current = serializers.SerializerMethodField()
@@ -227,8 +202,41 @@ class UserSessionSerializer(serializers.ModelSerializer):
             return False
         return str(payload.get('session_id')) == str(obj.session_id)
 
-
 class UserAdminSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    plan = serializers.SerializerMethodField()
+    enrolled = serializers.SerializerMethodField()
+    workspace = serializers.SerializerMethodField()
+    joined_date = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "email", "full_name", "is_active", "is_staff"]
+        fields = ["id", "name", "email", "status", "plan", "enrolled", "workspace", "joined_date"]
+
+    def get_name(self, obj):
+        return obj.full_name
+
+    def get_status(self, obj):
+        return "Active" if obj.is_active else "Inactive"
+
+    def get_plan(self, obj):
+        from subscriptions.models import Subscription
+        subscription = Subscription.get_active_subscription_for_user(obj)
+        if subscription and subscription.package_plan and subscription.package_plan.package:
+            return subscription.package_plan.package.title
+        return "No Plan"
+
+    def get_enrolled(self, obj):
+        from subscriptions.models import Subscription
+        subscription = Subscription.get_active_subscription_for_user(obj)
+        if subscription:
+            return subscription.started_at
+        return None
+
+    def get_workspace(self, obj):
+        workspace = getattr(obj, "owned_workspace", None)
+        return workspace.name if workspace else "No Workspace"
+
+    def get_joined_date(self, obj):
+        return obj.date_joined
