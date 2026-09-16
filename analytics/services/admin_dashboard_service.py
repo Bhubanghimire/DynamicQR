@@ -59,6 +59,41 @@ class AdminDashboardService:
         return None
 
     @classmethod
+    def get_top_power_users(cls, request) -> Dict[str, Any]:
+        from accounts.models import User
+        from subscriptions.models import Subscription
+        from django.db.models import Count
+
+        # Get top users by QR count and total scans
+        # Based on the error message choices, the reverse relation is 'qrcode'
+        top_users = (
+            User.objects.annotate(
+                qr_count=Count('qrcode', distinct=True),
+                total_scans=Count('qrcode__scan_events')
+            )
+            .order_by('-qr_count', '-total_scans')[:20]
+        )
+
+        power_users = []
+        for user in top_users:
+            # Get current active plan
+            sub = Subscription.get_active_subscription_for_user(user)
+            plan_name = sub.package_plan.package.title if sub else "No Active Plan"
+
+            power_users.append({
+                "name": user.full_name,
+                "email": user.email,
+                "current_plan": plan_name,
+                "qr_count": user.qr_count,
+                "total_scans": user.total_scans,
+            })
+
+        return {
+            "data": power_users,
+            "message": "Top power user accounts fetched successfully."
+        }
+
+    @classmethod
     def get_os_browser_distribution(cls, request) -> Dict[str, Any]:
         period = request.query_params.get("period")
         date_range = cls.resolve_date_range(period, request)
