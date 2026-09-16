@@ -1,15 +1,53 @@
 from rest_framework import viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
 from django.db.models import Q
-from subscriptions.models import Package, Invoice
-from subscriptions.serializers import PackageSerializer, InvoiceSerializer
+from django.db import transaction
+from subscriptions.models import Duration, Package, PackagePlan, Invoice, SubscriptionChangeLog
+from subscriptions.serializers import AdminDurationSerializer, AdminPackageSerializer, InvoiceSerializer
 from accounts.views import AdminAutoSchema
 
-class PackageViewSet(viewsets.ModelViewSet):
-    queryset = Package.objects.all()
-    serializer_class = PackageSerializer
+
+class DurationViewSet(viewsets.ModelViewSet):
+    queryset = Duration.objects.all().order_by("days", "name")
+    serializer_class = AdminDurationSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
+
+
+class PackageViewSet(viewsets.ModelViewSet):
+    queryset = Package.objects.prefetch_related("packageplan_set", "packageplan_set__duration").all()
+    serializer_class = AdminPackageSerializer
+    permission_classes = [IsAdminUser]
+    schema = AdminAutoSchema()
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            serializer.save()
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            serializer.save()
+
+    def perform_destroy(self, instance):
+        plan_ids = list(instance.packageplan_set.values_list("id", flat=True))
+        if plan_ids:
+            has_usage = (
+                PackagePlan.objects.filter(id__in=plan_ids, subscriptions__isnull=False).exists()
+                or PackagePlan.objects.filter(id__in=plan_ids, invoices__isnull=False).exists()
+                or SubscriptionChangeLog.objects.filter(
+                    Q(old_package_plan_id__in=plan_ids) | Q(new_package_plan_id__in=plan_ids)
+                ).exists()
+            )
+            if has_usage:
+                raise ValidationError({
+                    "detail": "This package is already used and cannot be deleted."
+                })
+
+        with transaction.atomic():
+            for plan in instance.packageplan_set.all():
+                plan.delete()
+            instance.delete()
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Invoice.objects.all().order_by("-created_at")
