@@ -65,3 +65,20 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=False, methods=['get'], url_path='user-activities')
+    def user_activities(self, request):
+        try:
+            result = AdminDashboardService.get_user_activities(request)
+            return Response(
+                result,
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "data": [],
+                    "message": f"Error fetching user activities: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

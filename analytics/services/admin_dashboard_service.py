@@ -59,7 +59,48 @@ class AdminDashboardService:
         return None
 
     @classmethod
-    def get_summary(cls, request) -> Dict[str, Any]:
+    def get_user_activities(cls, request) -> Dict[str, Any]:
+        period = request.query_params.get("period")
+        date_range = cls.resolve_date_range(period, request)
+
+        if date_range is None:
+            return {
+                "data": [],
+                "message": "No date range provided. Please specify a period (e.g., today, 30d, custom)."
+            }
+
+        start_date = date_range.start_date
+        end_date = date_range.end_date
+
+        # Count users registered per day
+        from accounts.models import User
+        from django.db.models import Count
+        from django.db.models.functions import TruncDate
+
+        registrations = (
+            User.objects.filter(date_joined__date__range=(start_date, end_date))
+            .annotate(date=TruncDate("date_joined"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .order_by("date")
+        )
+
+        reg_by_date = {row["date"]: row["count"] for row in registrations}
+
+        # Fill gaps to ensure continuous timeline
+        timeline = []
+        current_date = start_date
+        while current_date <= end_date:
+            timeline.append({
+                "date": current_date.isoformat(),
+                "count": reg_by_date.get(current_date, 0)
+            })
+            current_date += timedelta(days=1)
+
+        return {
+            "data": timeline,
+            "message": "User registration activities fetched successfully."
+        }
         period = request.query_params.get("period")
         date_range = cls.resolve_date_range(period, request)
 
