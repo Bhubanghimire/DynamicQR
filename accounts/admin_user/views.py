@@ -76,6 +76,24 @@ class UserAdminViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(
+            {
+                "data": serializer.data,
+                "message": "User profile updated successfully."
+            },
+            status=status.HTTP_200_OK
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
     def get_queryset(self):
         queryset = User.objects.all().order_by('-date_joined')
         status = self.request.query_params.get('status')
