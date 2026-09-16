@@ -76,6 +76,8 @@ class AdminAutoSchema(AutoSchema):
             return ["Admin Projects"]
         if '/api/v1.1/admin/system/' in path:
             return ["Admin System"]
+        if '/api/v1.1/admin/accounts/faqs/' in path:
+            return ["Admin FAQs"]
         if '/api/v1.1/admin/accounts/' in path:
             return ["Admin Accounts"]
         return ["Admin API"]

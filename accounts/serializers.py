@@ -152,6 +152,11 @@ class FAQListSerializer(serializers.ModelSerializer):
         model = FAQ
         fields = ['id', 'question', 'answer']
 
+class FAQAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FAQ
+        fields = ['id', 'question', 'answer', 'is_active', 'display_order']
+
 class NotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationPreference
