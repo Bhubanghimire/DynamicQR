@@ -59,6 +59,54 @@ class AdminDashboardService:
         return None
 
     @classmethod
+    def get_os_browser_distribution(cls, request) -> Dict[str, Any]:
+        period = request.query_params.get("period")
+        date_range = cls.resolve_date_range(period, request)
+
+        from analytics.models import ScanEvent
+        from django.db.models import Count
+
+        scan_filter = {}
+        if date_range:
+            scan_filter['scanned_at__date__gte'] = date_range.start_date
+            scan_filter['scanned_at__date__lte'] = date_range.end_date
+
+        # OS Distribution
+        os_data = (
+            ScanEvent.objects.filter(**scan_filter)
+            .values('os')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+
+        # Browser Distribution
+        browser_data = (
+            ScanEvent.objects.filter(**scan_filter)
+            .values('browser')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+
+        # Format the data, handling empty/null values as "Unknown"
+        def format_distribution(queryset, field_name):
+            result = []
+            for item in queryset:
+                name = item[field_name] or "Unknown"
+                result.append({
+                    "name": name,
+                    "count": item['count']
+                })
+            return result
+
+        return {
+            "data": {
+                "os": format_distribution(os_data, 'os'),
+                "browser": format_distribution(browser_data, 'browser'),
+            },
+            "message": "OS and Browser distribution fetched successfully."
+        }
+
+    @classmethod
     def get_plan_metrics(cls, request) -> Dict[str, Any]:
         period = request.query_params.get("period")
         date_range = cls.resolve_date_range(period, request)

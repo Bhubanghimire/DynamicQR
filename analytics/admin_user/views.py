@@ -66,6 +66,23 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['get'], url_path='os-browser-share')
+    def os_browser_share(self, request):
+        try:
+            result = AdminDashboardService.get_os_browser_distribution(request)
+            return Response(
+                result,
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "data": {"os": [], "browser": []},
+                    "message": f"Error fetching OS/Browser distribution: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'], url_path='plan-metrics')
     def plan_metrics(self, request):
         try:
