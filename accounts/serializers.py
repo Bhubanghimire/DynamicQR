@@ -117,6 +117,20 @@ class ProfileImageUpdateSerializer(serializers.ModelSerializer):
         model = User
         fields = ["profile"]
 
+class UserAdminUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "email",
+            "full_name",
+            "phone",
+            "birth_date",
+            "gender",
+            "user_type",
+            "is_two_factor_enabled",
+            "is_active",
+        ]
+
 class TokenResponseSerializer(serializers.Serializer):
     data = serializers.DictField()
     message = serializers.CharField()

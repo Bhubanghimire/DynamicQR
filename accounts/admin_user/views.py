@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
 from accounts.models import User
-from accounts.serializers import UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer
+from accounts.serializers import UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer
 from accounts.views import AdminAutoSchema
 
 class UserAdminSchema(AdminAutoSchema):
@@ -43,6 +43,8 @@ class UserAdminViewSet(viewsets.ModelViewSet):
             return UserAdminDetailSerializer
         if self.action == 'create':
             return UserAdminCreateSerializer
+        if self.action in ['update', 'partial_update']:
+            return UserAdminUpdateSerializer
         return super().get_serializer_class()
 
     def create(self, request, *args, **kwargs):
