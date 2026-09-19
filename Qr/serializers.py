@@ -938,6 +938,28 @@ class CustomDomainSerializer(serializers.ModelSerializer):
             'frontend_note': 'The custom domain serves the frontend application, not the API server.'
         }
 
+
+class AdminCustomDomainSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+    is_verified = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = CustomDomain
+        fields = (
+            "id", "domain", "status", "is_default", "is_verified",
+            "user", "verification_attempts", "verified_at",
+            "activated_at", "ssl_verified", "ssl_verified_at", "ssl_expires_at",
+            "nginx_enabled", "created_at", "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_user(self, obj):
+        return {
+            "id": str(obj.user_id),
+            "name": obj.user.full_name,
+            "email": obj.user.email,
+        }
+
     def get_verification_url(self, obj):
         return obj.get_verification_url()
 
