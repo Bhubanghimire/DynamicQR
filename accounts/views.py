@@ -265,6 +265,7 @@ class AuthViewSet(viewsets.ViewSet):
                     "access_token": access_token,
                     "email": user.email,
                     "is_two_factor_enabled": user.is_two_factor_enabled,
+                    "user_type":user.user_type.id,
                 },
                 "message": "Logged in successfully."
             },
