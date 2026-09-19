@@ -50,7 +50,10 @@ class PackageViewSet(viewsets.ModelViewSet):
             instance.delete()
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Invoice.objects.all().order_by("-created_at")
+    queryset = Invoice.objects.select_related(
+        "user", "package_plan", "package_plan__package", "package_plan__duration",
+        "payment_method", "subscription",
+    ).all().order_by("-created_at")
     serializer_class = InvoiceSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()

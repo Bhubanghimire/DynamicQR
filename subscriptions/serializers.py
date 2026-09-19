@@ -234,6 +234,7 @@ class SubscriptionSummarySerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(source="user.full_name", read_only=True)
     package_plan = InvoicePackagePlanSerializer(read_only=True)
     payment_method = PaymentMethodSerializer(read_only=True)
     subscription = SubscriptionSummarySerializer(read_only=True)
@@ -244,6 +245,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "invoice_number",
+            "full_name",
             "status",
             "status_display",
             "amount",
