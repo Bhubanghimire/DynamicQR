@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional, Dict, Any
 
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, Q
 from django.utils import timezone
 
 from accounts.models import User
@@ -79,7 +79,7 @@ class AdminDashboardService:
 
         # Count QRs created per day
         qrs = (
-            QRCode.objects.filter(created_at__date__range=(start_date, end_date))
+            cls._filtered_qrs(request).filter(created_at__date__range=(start_date, end_date))
             .annotate(date=TruncDate("created_at"))
             .values("date")
             .annotate(count=Count("id"))
@@ -105,15 +105,17 @@ class AdminDashboardService:
 
     @classmethod
     def get_qr_type_usage(cls, request) -> Dict[str, Any]:
-        qr_type_counts = {
-            row["qr_type_id"]: row["count"]
-            for row in QRCode.objects.values("qr_type_id").annotate(count=Count("id"))
-        }
+        qrs = cls._filtered_qrs(request)
+        qr_type_counts = {row["qr_type_id"]: row["count"] for row in
+                          qrs.values("qr_type_id").annotate(count=Count("id"))}
         total_qr = sum(qr_type_counts.values())
 
         qr_types = ConfigChoice.objects.filter(
             category__name="qr_type",
         ).order_by("name")
+        qr_type = request.query_params.get("qr_type")
+        if qr_type:
+            qr_types = qr_types.filter(Q(id=qr_type) | Q(name__icontains=qr_type))
 
         data = []
         for qr_type in qr_types:
@@ -135,16 +137,10 @@ class AdminDashboardService:
 
     @classmethod
     def get_top_performing_qrs(cls, request) -> Dict[str, Any]:
-        try:
-            limit = int(request.query_params.get("limit", 10))
-        except (TypeError, ValueError):
-            limit = 10
-        limit = max(1, min(limit, 100))
-
         qrs = (
-            QRCode.objects.select_related("qr_type")
+            cls._filtered_qrs(request).select_related("qr_type")
             .annotate(total_scans=Count("scan_events"))
-            .order_by("-total_scans", "name", "id")[:limit]
+            .order_by("-total_scans", "name", "id")
         )
 
         data = [
@@ -170,12 +166,20 @@ class AdminDashboardService:
 
         # Get top users by QR count and total scans
         # Based on the error message choices, the reverse relation is 'qrcode'
+        users = User.objects.all()
+        search = request.query_params.get("search")
+        if search:
+            users = users.filter(Q(email__icontains=search) | Q(full_name__icontains=search) | Q(phone__icontains=search))
+        if request.query_params.get("user_id"):
+            users = users.filter(id=request.query_params["user_id"])
+        if request.query_params.get("status") in {"active", "inactive"}:
+            users = users.filter(is_active=request.query_params["status"] == "active")
         top_users = (
-            User.objects.annotate(
+            users.annotate(
                 qr_count=Count('qrcode', distinct=True),
                 total_scans=Count('qrcode__scan_events')
             )
-            .order_by('-qr_count', '-total_scans')[:20]
+            .order_by('-qr_count', '-total_scans')
         )
 
         power_users = []
@@ -211,8 +215,9 @@ class AdminDashboardService:
             scan_filter['scanned_at__date__lte'] = date_range.end_date
 
         # OS Distribution
+        scans = cls._filtered_scans(request, scan_filter)
         os_data = (
-            ScanEvent.objects.filter(**scan_filter)
+            scans
             .values('os')
             .annotate(count=Count('id'))
             .order_by('-count')
@@ -220,7 +225,7 @@ class AdminDashboardService:
 
         # Browser Distribution
         browser_data = (
-            ScanEvent.objects.filter(**scan_filter)
+            scans
             .values('browser')
             .annotate(count=Count('id'))
             .order_by('-count')
@@ -255,13 +260,20 @@ class AdminDashboardService:
         from django.db.models import Count
 
         # 1. Get all active packages
-        packages = Package.objects.filter(is_active=True)
+        packages = Package.objects.all()
+        package_status = request.query_params.get("package_status", request.query_params.get("status"))
+        if package_status in {"active", "inactive"}:
+            packages = packages.filter(is_active=package_status == "active")
+        search = request.query_params.get("search")
+        if search:
+            packages = packages.filter(title__icontains=search)
         package_list = list(packages)
 
         # 2. Get all active subscriptions to map users to packages
         # Subscription -> PackagePlan -> Package
+        subscription_status = request.query_params.get("subscription_status", "active")
         active_subs = Subscription.objects.filter(
-            status='active',
+            status=subscription_status,
             package_plan__package__is_active=True
         ).values('user_id', 'package_plan__package_id')
 
@@ -280,7 +292,7 @@ class AdminDashboardService:
             scan_filter['scanned_at__date__lte'] = date_range.end_date
 
         # Get scans and their creator (User)
-        scans = ScanEvent.objects.filter(**scan_filter).values_list('qr__created_by_id', flat=True)
+        scans = cls._filtered_scans(request, scan_filter).values_list('qr__created_by_id', flat=True)
 
         package_scan_counts = {}
         for creator_id in scans:
@@ -321,8 +333,17 @@ class AdminDashboardService:
         from django.db.models import Count
         from django.db.models.functions import TruncDate
 
+        users = User.objects.filter(date_joined__date__range=(start_date, end_date))
+        search = request.query_params.get("search")
+        if search:
+            users = users.filter(Q(email__icontains=search) | Q(full_name__icontains=search))
+        if request.query_params.get("user_id"):
+            users = users.filter(id=request.query_params["user_id"])
+        if request.query_params.get("status") in {"active", "inactive"}:
+            users = users.filter(is_active=request.query_params["status"] == "active")
+
         registrations = (
-            User.objects.filter(date_joined__date__range=(start_date, end_date))
+            users
             .annotate(date=TruncDate("date_joined"))
             .values("date")
             .annotate(count=Count("id"))
@@ -398,3 +419,36 @@ class AdminDashboardService:
                 "end_date": end_date.isoformat() if end_date else None,
             },
         }
+
+    @classmethod
+    def _filtered_qrs(cls, request):
+        qrs = QRCode.objects.all()
+        search = request.query_params.get("search")
+        if search:
+            qrs = qrs.filter(Q(name__icontains=search) | Q(short_code__icontains=search) |
+                             Q(created_by__email__icontains=search) | Q(created_by__full_name__icontains=search))
+        if request.query_params.get("user_id"):
+            qrs = qrs.filter(created_by_id=request.query_params["user_id"])
+        if request.query_params.get("status") in {"active", "inactive"}:
+            qrs = qrs.filter(status=request.query_params["status"] == "active")
+        if request.query_params.get("qr_status") in {"active", "inactive"}:
+            qrs = qrs.filter(status=request.query_params["qr_status"] == "active")
+        if request.query_params.get("qr_type"):
+            value = request.query_params["qr_type"]
+            qrs = qrs.filter(Q(qr_type_id=value) | Q(qr_type__name__icontains=value))
+        return qrs
+
+    @classmethod
+    def _filtered_scans(cls, request, filters=None):
+        scans = ScanEvent.objects.filter(**(filters or {}))
+        if request.query_params.get("user_id"):
+            scans = scans.filter(qr__created_by_id=request.query_params["user_id"])
+        for param, field in (("country", "country"), ("city", "city"), ("browser", "browser"),
+                             ("os", "os"), ("device_type", "device_type"), ("is_bot", "is_bot")):
+            value = request.query_params.get(param)
+            if value is not None:
+                if param == "is_bot":
+                    scans = scans.filter(**{field: value.lower() in {"1", "true", "yes"}})
+                else:
+                    scans = scans.filter(**{f"{field}__icontains": value})
+        return scans

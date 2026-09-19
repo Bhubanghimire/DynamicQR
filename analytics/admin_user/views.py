@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
+from DynamicOCR.pagination import CustomPagination
 from analytics.services.admin_dashboard_service import AdminDashboardService
 from accounts.views import AdminAutoSchema
 
@@ -46,6 +47,18 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     permission_classes = [IsAdminUser]
     schema = AnalyticsDashboardSchema()
 
+    @staticmethod
+    def _paginate(request, result):
+        """Paginate the list in a service result while preserving its message."""
+        data = result.get("data", [])
+        if not isinstance(data, list):
+            return Response(result, status=status.HTTP_200_OK)
+        paginator = CustomPagination()
+        page = paginator.paginate_queryset(data, request, view=None)
+        response = paginator.get_paginated_response(page)
+        response.data["message"] = result.get("message")
+        return response
+
     @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):
         try:
@@ -70,10 +83,7 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def top_power_users(self, request):
         try:
             result = AdminDashboardService.get_top_power_users(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            return self._paginate(request, result)
         except Exception as e:
             return Response(
                 {
@@ -87,10 +97,7 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def code_generation_trend(self, request):
         try:
             result = AdminDashboardService.get_qr_generation_trend(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            return self._paginate(request, result)
         except Exception as e:
             return Response(
                 {
@@ -104,10 +111,7 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def qr_type_usage(self, request):
         try:
             result = AdminDashboardService.get_qr_type_usage(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            return self._paginate(request, result)
         except Exception as e:
             return Response(
                 {
@@ -121,10 +125,7 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def top_performing_qrs(self, request):
         try:
             result = AdminDashboardService.get_top_performing_qrs(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            return self._paginate(request, result)
         except Exception as e:
             return Response(
                 {
@@ -138,10 +139,14 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def os_browser_share(self, request):
         try:
             result = AdminDashboardService.get_os_browser_distribution(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            if isinstance(result.get("data"), dict):
+                paginator = CustomPagination()
+                data = result["data"]
+                for key in ("os", "browser"):
+                    page = paginator.paginate_queryset(data.get(key, []), request, view=None)
+                    data[key] = list(page)
+                result["data"] = data
+            return Response(result, status=status.HTTP_200_OK)
         except Exception as e:
             return Response(
                 {
@@ -155,10 +160,7 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def plan_metrics(self, request):
         try:
             result = AdminDashboardService.get_plan_metrics(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            return self._paginate(request, result)
         except Exception as e:
             return Response(
                 {
@@ -172,10 +174,7 @@ class AnalyticsDashboardViewSet(viewsets.ViewSet):
     def user_activities(self, request):
         try:
             result = AdminDashboardService.get_user_activities(request)
-            return Response(
-                result,
-                status=status.HTTP_200_OK
-            )
+            return self._paginate(request, result)
         except Exception as e:
             return Response(
                 {
