@@ -345,37 +345,46 @@ class AdminDashboardService:
             "data": timeline,
             "message": "User registration activities fetched successfully."
         }
+
+    @classmethod
+    def get_summary(cls, request) -> Dict[str, Any]:
         period = request.query_params.get("period")
         date_range = cls.resolve_date_range(period, request)
 
-        # Default range: all time if no period provided
+        # No period means all-time totals. A recognized period limits each
+        # metric to records whose relevant timestamp falls in that range.
         start_date = date_range.start_date if date_range else None
         end_date = date_range.end_date if date_range else None
 
-        # Total Users
         user_filter = {}
-        if start_date: user_filter['date_joined__date__gte'] = start_date
-        if end_date: user_filter['date_joined__date__lte'] = end_date
+        if start_date:
+            user_filter["date_joined__date__gte"] = start_date
+        if end_date:
+            user_filter["date_joined__date__lte"] = end_date
         total_users = User.objects.filter(**user_filter).count()
 
-        # Total QR Codes
         qr_filter = {}
-        if start_date: qr_filter['created_at__date__gte'] = start_date
-        if end_date: qr_filter['created_at__date__lte'] = end_date
+        if start_date:
+            qr_filter["created_at__date__gte"] = start_date
+        if end_date:
+            qr_filter["created_at__date__lte"] = end_date
         total_qrs = QRCode.objects.filter(**qr_filter).count()
 
-        # Total Scans
         scan_filter = {}
-        if start_date: scan_filter['scanned_at__date__gte'] = start_date
-        if end_date: scan_filter['scanned_at__date__lte'] = end_date
+        if start_date:
+            scan_filter["scanned_at__date__gte"] = start_date
+        if end_date:
+            scan_filter["scanned_at__date__lte"] = end_date
         total_scans = ScanEvent.objects.filter(**scan_filter).count()
 
-        # Total Revenue
-        revenue_filter = {'status': 'paid'}
-        if start_date: revenue_filter['issued_at__date__gte'] = start_date
-        if end_date: revenue_filter['issued_at__date__lte'] = end_date
-        revenue_data = Invoice.objects.filter(**revenue_filter).aggregate(total=Sum('total'))
-        total_revenue = revenue_data['total'] or 0.0
+        revenue_filter = {"status": "paid"}
+        if start_date:
+            revenue_filter["issued_at__date__gte"] = start_date
+        if end_date:
+            revenue_filter["issued_at__date__lte"] = end_date
+        total_revenue = Invoice.objects.filter(**revenue_filter).aggregate(
+            total=Sum("total")
+        )["total"] or 0.0
 
         return {
             "total_scans": total_scans,
@@ -387,5 +396,5 @@ class AdminDashboardService:
                 "period": period,
                 "start_date": start_date.isoformat() if start_date else None,
                 "end_date": end_date.isoformat() if end_date else None,
-            }
+            },
         }
