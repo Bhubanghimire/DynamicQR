@@ -39,6 +39,34 @@ from subscriptions.models import Invoice, Payment, PaymentMethod
 from django.core import signing
 from urllib.parse import urlencode
 
+
+def admin_query_parameter(
+    name,
+    description,
+    *,
+    value_type="string",
+    enum=None,
+    value_format=None,
+    example=None,
+    required=False,
+):
+    """Build one OpenAPI query parameter used by admin list endpoints."""
+
+    schema = {"type": value_type}
+    if enum is not None:
+        schema["enum"] = list(enum)
+    if value_format is not None:
+        schema["format"] = value_format
+    if example is not None:
+        schema["example"] = example
+    return {
+        "name": name,
+        "required": required,
+        "in": "query",
+        "description": description,
+        "schema": schema,
+    }
+
 def set_refresh_cookie(response, refresh_token):
     """
     Use HTTPS-only cookie settings in production, but allow local HTTP dev.
@@ -67,6 +95,37 @@ def set_refresh_cookie(response, refresh_token):
 
 
 class AdminAutoSchema(AutoSchema):
+    """Admin schema with declarative, action-specific query parameters."""
+
+    def get_filter_parameters(self, path, method):
+        parameters = super().get_filter_parameters(path, method)
+        if method.upper() != "GET":
+            return parameters
+
+        if not hasattr(self.view, "swagger_query_parameters"):
+            return parameters
+
+        configured = self.view.swagger_query_parameters
+        action = getattr(self.view, "action", None)
+        if isinstance(configured, dict):
+            if action not in configured:
+                return []
+            custom_parameters = configured[action]
+        else:
+            custom_parameters = configured
+
+        # Replace automatically generated parameters with the documented version
+        # when names overlap (for example DRF's generic SearchFilter parameter).
+        for custom_parameter in custom_parameters:
+            key = (custom_parameter.get("name"), custom_parameter.get("in", "query"))
+            for index, parameter in enumerate(parameters):
+                if (parameter.get("name"), parameter.get("in", "query")) == key:
+                    parameters[index] = custom_parameter
+                    break
+            else:
+                parameters.append(custom_parameter)
+        return parameters
+
     def get_tags(self, path, method):
         if '/api/v1.1/admin/subscriptions/' in path:
             return ["Admin Subscriptions"]

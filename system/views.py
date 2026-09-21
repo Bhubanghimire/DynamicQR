@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, AllowAny
-from accounts.views import AdminAutoSchema
+from accounts.views import AdminAutoSchema, admin_query_parameter
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 from DynamicOCR.schemas import PaginatedAutoSchema
@@ -29,6 +29,22 @@ class ConfigCategoryViewSet(viewsets.ModelViewSet):
     http_method_names = ["get"]
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "search",
+                "Case-insensitive search across category name and description.",
+                example="qr type",
+            ),
+        ],
+        "choices": [
+            admin_query_parameter(
+                "search",
+                "Case-insensitive search across choice name and description within this category.",
+                example="website",
+            ),
+        ],
+    }
 
     def get_serializer_class(self):
         if self.action == "choices":

@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAdminUser
 
 from Qr.models import CustomDomain
 from Qr.serializers import AdminCustomDomainSerializer
-from accounts.views import AdminAutoSchema
+from accounts.views import AdminAutoSchema, admin_query_parameter
 from Qr.services.domain_verification import DomainVerificationService
 
 
@@ -19,6 +19,39 @@ class CustomDomainViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = CustomDomain.objects.select_related("user").filter(
         is_deleted=False
     ).order_by("-created_at")
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "search",
+                "Case-insensitive search across domain, user full name, and user email.",
+                example="example.com",
+            ),
+            admin_query_parameter(
+                "status",
+                "Filter by exact custom-domain status.",
+                enum=[value for value, _label in CustomDomain.Status.choices],
+                example=CustomDomain.Status.ACTIVE,
+            ),
+            admin_query_parameter(
+                "user_id",
+                "Filter by the exact user UUID.",
+                value_format="uuid",
+                example="123e4567-e89b-12d3-a456-426614174000",
+            ),
+            admin_query_parameter(
+                "is_default",
+                "Filter by default-domain flag. Accepted query values are `true` and `false`.",
+                enum=["true", "false"],
+                example="true",
+            ),
+            admin_query_parameter(
+                "ssl_verified",
+                "Filter by SSL verification flag. Accepted query values are `true` and `false`.",
+                enum=["true", "false"],
+                example="false",
+            ),
+        ],
+    }
 
     @action(detail=False, methods=["get"], url_path="statistics")
     def statistics(self, request):

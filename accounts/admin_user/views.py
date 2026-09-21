@@ -4,28 +4,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
 from accounts.models import User, FAQ
 from accounts.serializers import UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer, FAQAdminSerializer
-from accounts.views import AdminAutoSchema
+from accounts.views import AdminAutoSchema, admin_query_parameter
 
 class UserAdminSchema(AdminAutoSchema):
-    def get_parameters(self, view, method):
-        parameters = super().get_parameters(view, method) or []
-        if method == 'get':
-            parameters.extend([
-                {
-                    'name': 'status',
-                    'in': 'query',
-                    'description': 'Filter by subscription status (active, expired, cancelled, pending, failed, grace_period)',
-                    'schema': {'type': 'string'}
-                },
-                {
-                    'name': 'plan',
-                    'in': 'query',
-                    'description': 'Filter by package plan title',
-                    'schema': {'type': 'string'}
-                },
-            ])
-        return parameters
-
     def get_request_serializer(self, path, method):
         if method == 'post':
             from accounts.serializers import UserAdminCreateSerializer
@@ -37,6 +18,21 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     serializer_class = UserAdminSerializer
     permission_classes = [IsAdminUser]
     schema = UserAdminSchema()
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "status",
+                "Filter by exact subscription status.",
+                enum=["active", "expired", "cancelled", "pending", "failed", "grace_period"],
+                example="active",
+            ),
+            admin_query_parameter(
+                "plan",
+                "Filter by exact package title (case-sensitive), for example `Free` or `Pro`.",
+                example="Pro",
+            ),
+        ],
+    }
 
     def get_serializer_class(self):
         if self.action == 'retrieve':

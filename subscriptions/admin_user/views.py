@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.db import transaction
 from subscriptions.models import Duration, Package, PackagePlan, Invoice, SubscriptionChangeLog
 from subscriptions.serializers import AdminDurationSerializer, AdminPackageSerializer, InvoiceSerializer
-from accounts.views import AdminAutoSchema
+from accounts.views import AdminAutoSchema, admin_query_parameter
 
 
 class DurationViewSet(viewsets.ModelViewSet):
@@ -57,6 +57,16 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = InvoiceSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "status",
+                "Filter by exact invoice status.",
+                enum=[value for value, _label in Invoice.Status.choices],
+                example=Invoice.Status.PAID,
+            ),
+        ],
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset()
