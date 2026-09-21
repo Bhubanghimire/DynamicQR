@@ -1,10 +1,12 @@
-from rest_framework import viewsets
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
-from django.db.models import Q
+from rest_framework.response import Response
+from django.db.models import Count, Q
 from django.db import transaction
 from subscriptions.models import Duration, Package, PackagePlan, Invoice, SubscriptionChangeLog
-from subscriptions.serializers import AdminDurationSerializer, AdminPackageSerializer, InvoiceSerializer
+from subscriptions.serializers import AdminDurationSerializer, AdminPackageSerializer, AdminInvoiceSerializer
 from accounts.views import AdminAutoSchema, admin_query_parameter
 
 
@@ -54,7 +56,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         "user", "package_plan", "package_plan__package", "package_plan__duration",
         "payment_method", "subscription",
     ).all().order_by("-created_at")
-    serializer_class = InvoiceSerializer
+    serializer_class = AdminInvoiceSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
     swagger_query_parameters = {
@@ -71,6 +73,13 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 value_format="uuid",
             ),
         ],
+        "status_counts": [
+            admin_query_parameter(
+                "user_id",
+                "Filter invoice counts by user UUID.",
+                value_format="uuid",
+            ),
+        ],
     }
 
     def get_queryset(self):
@@ -82,3 +91,17 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         if user_id:
             queryset = queryset.filter(user_id=user_id)
         return queryset
+
+    @action(detail=False, methods=["get"], url_path="status-counts")
+    def status_counts(self, request):
+        queryset = self.get_queryset()
+        counts = queryset.values("status").annotate(count=Count("id"))
+        counts_by_status = {status_value: 0 for status_value, _label in Invoice.Status.choices}
+        counts_by_status.update({item["status"]: item["count"] for item in counts})
+        return Response(
+            {
+                "data": counts_by_status,
+                "message": "Invoice status counts fetched successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )

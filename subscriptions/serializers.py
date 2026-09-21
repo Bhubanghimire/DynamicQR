@@ -266,6 +266,21 @@ class InvoiceSerializer(serializers.ModelSerializer):
         )
 
 
+class InvoiceUserSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(source="full_name", read_only=True)
+
+
+class AdminInvoiceSerializer(InvoiceSerializer):
+    user = InvoiceUserSerializer(read_only=True)
+
+    class Meta(InvoiceSerializer.Meta):
+        fields = tuple(
+            "user" if field == "full_name" else field
+            for field in InvoiceSerializer.Meta.fields
+        )
+
+
 class UsageQuotaSerializer(serializers.Serializer):
     used = serializers.IntegerField()
     limit = serializers.IntegerField(allow_null=True)

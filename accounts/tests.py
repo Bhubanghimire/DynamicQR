@@ -87,6 +87,11 @@ class AdminSwaggerQueryParameterTests(SimpleTestCase):
         )
         self.assertEqual(invoice_parameters["user_id"]["schema"]["format"], "uuid")
 
+        invoice_status_count_parameters = self.parameters_for(
+            "/api/v1.1/admin/subscriptions/invoices/status-counts/"
+        )
+        self.assertEqual(invoice_status_count_parameters["user_id"]["schema"]["format"], "uuid")
+
     def test_analytics_parameters_are_specific_to_each_list_action(self):
         top_users = self.parameters_for("/api/v1.1/admin/analytics/dashboard/top-power-users/")
         self.assertIn("search", top_users)
