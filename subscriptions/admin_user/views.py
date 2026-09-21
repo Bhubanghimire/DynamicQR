@@ -65,6 +65,11 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
                 enum=[value for value, _label in Invoice.Status.choices],
                 example=Invoice.Status.PAID,
             ),
+            admin_query_parameter(
+                "user_id",
+                "Filter invoices by user UUID.",
+                value_format="uuid",
+            ),
         ],
     }
 
@@ -73,4 +78,7 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         status = self.request.query_params.get('status')
         if status:
             queryset = queryset.filter(status=status)
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
         return queryset

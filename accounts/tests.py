@@ -85,6 +85,7 @@ class AdminSwaggerQueryParameterTests(SimpleTestCase):
             invoice_parameters["status"]["schema"]["enum"],
             ["draft", "pending", "paid", "overdue", "cancelled", "refunded"],
         )
+        self.assertEqual(invoice_parameters["user_id"]["schema"]["format"], "uuid")
 
     def test_analytics_parameters_are_specific_to_each_list_action(self):
         top_users = self.parameters_for("/api/v1.1/admin/analytics/dashboard/top-power-users/")
