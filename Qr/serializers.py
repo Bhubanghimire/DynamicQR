@@ -914,6 +914,10 @@ class CustomDomainSerializer(serializers.ModelSerializer):
 
         return domain
 
+    def get_verification_url(self, obj):
+        """Return the URL the user can use to verify the domain."""
+        return obj.get_verification_url()
+
     def get_verification_instructions(self, obj):
         """Generate verification instructions for the user"""
         return {
