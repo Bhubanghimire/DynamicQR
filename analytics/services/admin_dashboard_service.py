@@ -384,6 +384,24 @@ class AdminDashboardService:
             user_filter["date_joined__date__lte"] = end_date
         total_users = User.objects.filter(**user_filter).count()
 
+        users_growth = 0
+        if date_range:
+            period_length = (end_date - start_date).days + 1
+            previous_start_date = start_date - timedelta(days=period_length)
+            previous_end_date = start_date - timedelta(days=1)
+            previous_users = User.objects.filter(
+                date_joined__date__gte=previous_start_date,
+                date_joined__date__lte=previous_end_date,
+            ).count()
+
+            if previous_users:
+                users_growth = round(
+                    ((total_users - previous_users) / previous_users) * 100,
+                    2,
+                )
+            elif total_users:
+                users_growth = 100
+
         qr_filter = {}
         if start_date:
             qr_filter["created_at__date__gte"] = start_date
@@ -391,12 +409,51 @@ class AdminDashboardService:
             qr_filter["created_at__date__lte"] = end_date
         total_qrs = QRCode.objects.filter(**qr_filter).count()
 
+        qrs_growth = 0
+        if date_range:
+            period_length = (end_date - start_date).days + 1
+            previous_start_date = start_date - timedelta(days=period_length)
+            previous_end_date = start_date - timedelta(days=1)
+            previous_qrs = QRCode.objects.filter(
+                created_at__date__gte=previous_start_date,
+                created_at__date__lte=previous_end_date,
+            ).count()
+
+            if previous_qrs:
+                qrs_growth = round(
+                    ((total_qrs - previous_qrs) / previous_qrs) * 100,
+                    2,
+                )
+            elif total_qrs:
+                qrs_growth = 100
+
         scan_filter = {}
         if start_date:
             scan_filter["scanned_at__date__gte"] = start_date
         if end_date:
             scan_filter["scanned_at__date__lte"] = end_date
         total_scans = ScanEvent.objects.filter(**scan_filter).count()
+
+        # Compare the selected period with the immediately preceding period
+        # of the same length.  This keeps scan growth meaningful for both
+        # preset and custom date ranges.
+        scans_growth = 0
+        if date_range:
+            period_length = (end_date - start_date).days + 1
+            previous_start_date = start_date - timedelta(days=period_length)
+            previous_end_date = start_date - timedelta(days=1)
+            previous_scans = ScanEvent.objects.filter(
+                scanned_at__date__gte=previous_start_date,
+                scanned_at__date__lte=previous_end_date,
+            ).count()
+
+            if previous_scans:
+                scans_growth = round(
+                    ((total_scans - previous_scans) / previous_scans) * 100,
+                    2,
+                )
+            elif total_scans:
+                scans_growth = 100
 
         revenue_filter = {"status": "paid"}
         if start_date:
@@ -406,11 +463,18 @@ class AdminDashboardService:
         total_revenue = Invoice.objects.filter(**revenue_filter).aggregate(
             total=Sum("total")
         )["total"] or 0.0
+        total_paid_account = Invoice.objects.filter(**revenue_filter).values(
+            "user_id"
+        ).distinct().count()
 
         return {
             "total_scans": total_scans,
+            "scans_growth": scans_growth,
             "total_users": total_users,
+            "users_growth": users_growth,
             "total_qr_codes": total_qrs,
+            "qrs_growth": qrs_growth,
+            "total_paid_account": total_paid_account,
             "total_revenue": float(total_revenue),
             "currency": "NPR",
             "filter": {
