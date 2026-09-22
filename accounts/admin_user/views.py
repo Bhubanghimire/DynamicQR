@@ -22,6 +22,11 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     swagger_query_parameters = {
         "list": [
             admin_query_parameter(
+                "search",
+                "Search users by name, email, or phone.",
+                example="user@example.com",
+            ),
+            admin_query_parameter(
                 "status",
                 "Filter by exact subscription status.",
                 enum=["active", "expired", "cancelled", "pending", "failed", "grace_period"],
@@ -95,6 +100,14 @@ class UserAdminViewSet(viewsets.ModelViewSet):
         queryset = User.objects.all().order_by('-date_joined')
         status = self.request.query_params.get('status')
         plan = self.request.query_params.get('plan')
+        search = self.request.query_params.get('search')
+
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone__icontains=search)
+            )
 
         if status:
             queryset = queryset.filter(subscriptions__status=status)
