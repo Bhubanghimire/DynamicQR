@@ -59,7 +59,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
     workspace = serializers.SerializerMethodField()
     gender = serializers.PrimaryKeyRelatedField(read_only=True)
-    status = serializers.PrimaryKeyRelatedField(read_only=True)
+    status = serializers.SerializerMethodField()
     user_type = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
