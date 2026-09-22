@@ -15,6 +15,34 @@ class DurationViewSet(viewsets.ModelViewSet):
     serializer_class = AdminDurationSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "search",
+                "Search durations by name.",
+                example="Monthly",
+            ),
+            admin_query_parameter(
+                "status",
+                "Filter durations by soft-delete status.",
+                enum=["active", "inactive"],
+                example="active",
+            ),
+        ],
+    }
+
+    def get_queryset(self):
+        status_param = self.request.query_params.get("status", "").strip().lower()
+        if status_param == "inactive":
+            queryset = Duration.objects.get_deleted().order_by("days", "name")
+        else:
+            queryset = super().get_queryset()
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+
+        return queryset
 
 
 class PackageViewSet(viewsets.ModelViewSet):
@@ -22,6 +50,38 @@ class PackageViewSet(viewsets.ModelViewSet):
     serializer_class = AdminPackageSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "search",
+                "Search packages by title or description.",
+                example="Pro",
+            ),
+            admin_query_parameter(
+                "status",
+                "Filter packages by status.",
+                enum=["active", "inactive"],
+                example="active",
+            ),
+        ],
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            status_value = status_param.strip().lower()
+            if status_value in {"active", "inactive"}:
+                queryset = queryset.filter(is_active=status_value == "active")
+
+        return queryset
 
     def perform_create(self, serializer):
         with transaction.atomic():
@@ -62,6 +122,11 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     swagger_query_parameters = {
         "list": [
             admin_query_parameter(
+                "search",
+                "Search by invoice number, user name, user email, or package title.",
+                example="INV-2026",
+            ),
+            admin_query_parameter(
                 "status",
                 "Filter by exact invoice status.",
                 enum=[value for value, _label in Invoice.Status.choices],
@@ -84,7 +149,17 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        search = self.request.query_params.get('search')
         status = self.request.query_params.get('status')
+
+        if search:
+            queryset = queryset.filter(
+                Q(invoice_number__icontains=search)
+                | Q(user__full_name__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(package_plan__package__title__icontains=search)
+            )
+
         if status:
             queryset = queryset.filter(status=status)
         user_id = self.request.query_params.get('user_id')
