@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -128,6 +129,38 @@ class FAQAdminViewSet(viewsets.ModelViewSet):
     serializer_class = FAQAdminSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "search",
+                "Search FAQ questions and answers.",
+                example="password",
+            ),
+            admin_query_parameter(
+                "status",
+                "Filter FAQs by status.",
+                enum=["active", "inactive"],
+                example="active",
+            ),
+        ],
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(question__icontains=search) | Q(answer__icontains=search)
+            )
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            status_value = status_param.strip().lower()
+            if status_value in {"active", "inactive"}:
+                queryset = queryset.filter(is_active=status_value == "active")
+
+        return queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
