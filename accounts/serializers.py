@@ -59,6 +59,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
     workspace = serializers.SerializerMethodField()
     gender = serializers.PrimaryKeyRelatedField(read_only=True)
+    status = serializers.PrimaryKeyRelatedField(read_only=True)
     user_type = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
@@ -68,6 +69,7 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
             "email",
             "full_name",
             "phone",
+            "status",
             "profile",
             "workspace",
             "birth_date",
@@ -92,6 +94,9 @@ class ProfileDetailSerializer(serializers.ModelSerializer):
         if workspace is None:
             return None
         return WorkspaceSerializer(workspace, context=self.context).data
+
+    def get_status(self, obj):
+        return "Active" if obj.is_active else "Inactive"
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(required=False, allow_blank=True)
