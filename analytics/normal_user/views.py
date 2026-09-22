@@ -4,11 +4,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
-from DynamicOCR.schemas import PaginatedAutoSchema
+from DynamicQR.schemas import PaginatedAutoSchema
 from rest_framework.response import Response
 from rest_framework import status
 from Qr.models import Project, QRCode
-from DynamicOCR.pagination import CustomPagination
+from DynamicQR.pagination import CustomPagination
 from django.db.models import Q
 
 from analytics.serializers import DashboardSummarySerializer

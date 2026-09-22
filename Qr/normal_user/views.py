@@ -15,7 +15,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import NotFound, ValidationError
-from DynamicOCR.schemas import PaginatedAutoSchema
+from DynamicQR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
 
 from Qr.tasks import (
@@ -45,7 +45,7 @@ from Qr.serializers import (
     VideoUpdateSerializer, ProjectInvitationSerializer, ProjectInvitationDetailSerializer, QRImportJobUploadSerializer,
     QRImportJobStatusSerializer, CustomDomainSerializer,
 )
-from DynamicOCR.pagination import CustomPagination
+from DynamicQR.pagination import CustomPagination
 from analytics.task import track_scan
 from subscriptions.models import Subscription
 from system.models import ConfigChoice

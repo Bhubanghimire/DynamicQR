@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAdminUser, AllowAny
 from accounts.views import AdminAutoSchema, admin_query_parameter
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
-from DynamicOCR.schemas import PaginatedAutoSchema
+from DynamicQR.schemas import PaginatedAutoSchema
 
 from system.models import ConfigCategory, ConfigChoice
 from system.serializers import (
@@ -13,7 +13,7 @@ from system.serializers import (
     ConfigCategoryPaginatedResponseSerializer,
     ConfigChoicePaginatedResponseSerializer,
 )
-from DynamicOCR.pagination import CustomPagination
+from DynamicQR.pagination import CustomPagination
 
 
 class CategorySchema(PaginatedAutoSchema):

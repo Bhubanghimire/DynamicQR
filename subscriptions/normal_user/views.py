@@ -10,9 +10,9 @@ from rest_framework.response import Response
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from DynamicOCR.schemas import PaginatedAutoSchema
+from DynamicQR.schemas import PaginatedAutoSchema
 from Qr.models import CustomDomain, Project, QRCode, SharePermissions
-from DynamicOCR.pagination import CustomPagination
+from DynamicQR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription
 from subscriptions.serializers import (
     CheckoutSessionCreateSerializer,
