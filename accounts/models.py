@@ -63,7 +63,7 @@ class User(AbstractBaseUser, PermissionsMixin, SoftDeletable):
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=255)
     # last_name = models.CharField(max_length=255)
-    phone = models.CharField(max_length=255)
+    phone = models.CharField(max_length=255, blank=True)
     # address = models.CharField(max_length=255)
     profile = models.ImageField(upload_to='profiles/', null=True, blank=True)
     birth_date = models.DateField(blank=True, null=True)
