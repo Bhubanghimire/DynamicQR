@@ -63,7 +63,7 @@ class ConfigCategoryViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="choices")
     def choices(self, request, pk=None):
-        choices = ConfigChoice.objects.filter(category_id=pk).order_by("id")
+        choices = ConfigChoice.objects.filter(category_id=pk).order_by("created_at", "id")
         choices = self.filter_queryset(choices)
         paginator = CustomPagination()
         page = paginator.paginate_queryset(choices, request, view=self)
