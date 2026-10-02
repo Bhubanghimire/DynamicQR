@@ -24,6 +24,8 @@ from subscriptions.serializers import (
     SubscriptionUsageSummarySerializer,
 )
 from subscriptions.services.dodo_billing_service import DodoBillingService, to_minor_units
+from subscriptions.services.esewa_service import EsewaError, form_for_invoice
+from subscriptions.esewa_views import reconcile_esewa_invoice
 
 
 class ProjectSchema(PaginatedAutoSchema):
@@ -501,6 +503,8 @@ class PaymentViewSet(viewsets.ViewSet):
 
     permission_classes_by_action = {
         "create": [IsAuthenticated],
+        "esewa_initiate": [IsAuthenticated],
+        "esewa_status": [IsAuthenticated],
         "status": [IsAuthenticated],
         "history": [IsAuthenticated],
         "saved_methods": [IsAuthenticated],
@@ -611,6 +615,88 @@ class PaymentViewSet(viewsets.ViewSet):
                 "auto_renew": "true",
             },
         }
+
+    @action(detail=False, methods=["post"], url_path="esewa/initiate")
+    def esewa_initiate(self, request):
+        """Start a one-time eSewa checkout. Dodo checkout remains on POST /payments/."""
+        from uuid import uuid4
+
+        try:
+            plan_id = UUID(str(request.data.get("package_plan_id", "")))
+        except (ValueError, TypeError):
+            return Response({"package_plan_id": ["A valid UUID is required."]}, status=400)
+        plan = PackagePlan.objects.select_related("package", "duration").filter(
+            id=plan_id, is_active=True, package__is_active=True,
+        ).first()
+        if not plan:
+            return Response({"detail": "Package plan not found or inactive."}, status=404)
+        if plan.package.is_free or plan.price <= 0:
+            return Response({"detail": "This package does not require payment."}, status=400)
+        if plan.currency.upper() != "NPR":
+            return Response({"detail": "eSewa checkout requires an NPR package price."}, status=400)
+        if str(request.data.get("auto_renew", "false")).lower() in {"true", "1", "yes"}:
+            return Response({"detail": "eSewa checkout does not support auto-renew."}, status=400)
+        if Subscription.objects.filter(
+            user=request.user, status=Subscription.Status.ACTIVE,
+            auto_renew=True, dodo_subscription_id__isnull=False,
+            expires_at__gt=timezone.now(),
+        ).exists():
+            return Response(
+                {"detail": "Disable your active Dodo auto-renew before paying with eSewa."},
+                status=409,
+            )
+        if not settings.ESEWA_PRODUCT_CODE or not settings.ESEWA_SECRET_KEY or not settings.ESEWA_CALLBACK_BASE_URL:
+            return Response({"detail": "eSewa is not configured."}, status=503)
+
+        invoice = Invoice.objects.create(
+            user=request.user, package_plan=plan, amount=plan.price, tax=0,
+            total=plan.price, currency="NPR",
+            due_date=timezone.now() + timezone.timedelta(hours=24),
+            status=Invoice.Status.PENDING,
+            metadata={
+                "payment_provider": "esewa", "auto_renew": False,
+                "esewa_transaction_uuid": str(uuid4()),
+                "esewa_payment_status": "pending",
+            },
+        )
+        payment_url, fields = form_for_invoice(invoice)
+        return Response({
+            "payment_url": payment_url,
+            "form_fields": fields,
+            "invoice_number": invoice.invoice_number,
+            "invoice_id": str(invoice.id),
+            "transaction_uuid": invoice.metadata["esewa_transaction_uuid"],
+            "amount": str(invoice.total),
+            "currency": "NPR",
+            "auto_renew": False,
+        }, status=201)
+
+    @action(detail=False, methods=["get"], url_path="esewa/status")
+    def esewa_status(self, request):
+        """Recheck a user's eSewa invoice with eSewa; useful after a missed callback."""
+        invoice_number = request.query_params.get("invoice_number")
+        invoice = Invoice.objects.filter(
+            invoice_number=invoice_number, user=request.user,
+            metadata__payment_provider="esewa",
+        ).first()
+        if not invoice:
+            return Response({"detail": "eSewa invoice not found."}, status=404)
+        if invoice.status != Invoice.Status.PAID:
+            try:
+                reconcile_esewa_invoice(invoice)
+            except EsewaError:
+                pass  # Keep pending; caller can retry after eSewa becomes available.
+            invoice.refresh_from_db()
+        return Response({
+            "invoice_number": invoice.invoice_number,
+            "invoice_id": str(invoice.id),
+            "status": invoice.status,
+            "payment_status": invoice.metadata.get("esewa_payment_status", "pending"),
+            "amount": str(invoice.total),
+            "currency": "NPR",
+            "transaction_code": invoice.metadata.get("esewa_transaction_code"),
+            "subscription_id": str(invoice.subscription_id) if invoice.subscription_id else None,
+        })
 
     def create(self, request):
         """
@@ -1138,13 +1224,10 @@ class PaymentViewSet(viewsets.ViewSet):
                 user=request.user
             )
 
-            subscription = Subscription.objects.filter(
-                user=request.user,
-                # Use current_invoice if it exists, otherwise filter by package_plan
-            ).first()
-
-            # Try to get subscription from invoice
-            if not subscription and invoice.subscription:
+            subscription = Subscription.objects.filter(user=request.user).first()
+            if (invoice.metadata or {}).get("payment_provider") == "esewa" and invoice.subscription:
+                subscription = invoice.subscription
+            elif not subscription and invoice.subscription:
                 subscription = invoice.subscription
 
             return Response({
@@ -1156,6 +1239,12 @@ class PaymentViewSet(viewsets.ViewSet):
                 "paid_at": invoice.paid_at,
                 "dodo_payment_id": invoice.dodo_payment_id,
                 "dodo_subscription_id": invoice.dodo_subscription_id,
+                "payment_provider": (invoice.metadata or {}).get("payment_provider", "dodo"),
+                "payment_reference": (
+                    (invoice.metadata or {}).get("esewa_transaction_code")
+                    if (invoice.metadata or {}).get("payment_provider") == "esewa"
+                    else invoice.dodo_payment_id
+                ),
                 "subscription": {
                     "active": subscription.is_active() if subscription else False,
                     "end_date": subscription.expires_at if subscription else None,

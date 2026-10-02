@@ -234,6 +234,8 @@ class SubscriptionSummarySerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    payment_provider = serializers.SerializerMethodField()
+    payment_reference = serializers.SerializerMethodField()
     full_name = serializers.CharField(source="user.full_name", read_only=True)
     package_plan = InvoicePackagePlanSerializer(read_only=True)
     payment_method = PaymentMethodSerializer(read_only=True)
@@ -255,6 +257,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "due_date",
             "issued_at",
             "paid_at",
+            "payment_provider",
+            "payment_reference",
             "invoice_items",
             "notes",
             "billing_address",
@@ -264,6 +268,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+
+    def get_payment_provider(self, obj):
+        return (obj.metadata or {}).get("payment_provider", "dodo")
+
+    def get_payment_reference(self, obj):
+        if self.get_payment_provider(obj) == "esewa":
+            return (obj.metadata or {}).get("esewa_transaction_code")
+        return obj.dodo_payment_id
 
 
 class InvoiceUserSerializer(serializers.Serializer):

@@ -9,6 +9,7 @@ from rest_framework.schemas import get_schema_view
 from django.views.generic import TemplateView
 from allauth.socialaccount.providers.google.views import oauth2_login, oauth2_callback
 from subscriptions.webhooks import dodo_webhook
+from subscriptions.esewa_views import esewa_success, esewa_failure
 from django.http import JsonResponse
 
 # Base schema view for the project
@@ -83,6 +84,8 @@ urlpatterns = [
     path("api/v1.1/user/accounts/allauth/google/login/callback/", oauth2_callback, name="google_callback"),
     path("api/v1.1/user/accounts/allauth/", include("allauth.socialaccount.urls")),
     path("api/webhook/dodo/", dodo_webhook, name="dodo_webhook"),
+    path("api/payment/esewa/success/<uuid:invoice_id>/", esewa_success, name="esewa_success"),
+    path("api/payment/esewa/failure/<uuid:invoice_id>/", esewa_failure, name="esewa_failure"),
 
     path("api/v1.1/admin/", include(("DynamicQR.api.admin_urls", "api_admin"), namespace="api_admin")),
     path("api/category/", include(("system.normal_user.urls", "system_user"), namespace="system_user")),

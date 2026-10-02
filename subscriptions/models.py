@@ -722,6 +722,7 @@ class Payment(SoftDeletable):
 
     class Provider(models.TextChoices):
         DODO = "dodo", "Dodo"
+        ESEWA = "esewa", "eSewa"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
