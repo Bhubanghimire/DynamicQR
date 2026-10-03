@@ -848,6 +848,14 @@ class PaymentViewSet(viewsets.ViewSet):
                 },
             }
 
+            # Prefill the phone saved in BillingAddress. Keep it in
+            # international/E.164 form (for example +9779862853130) so
+            # Dodo does not fall back to the browser's default country.
+            saved_phone = (billing_address.phone or "").strip() if billing_address else ""
+            saved_phone = re.sub(r"[\s().-]", "", saved_phone)
+            if saved_phone and not default_payment_method:
+                session_params["customer"]["phone_number"] = saved_phone
+
             # Send billing address to Dodo checkout
             if dodo_billing_address:
                 session_params["billing_address"] = dodo_billing_address
@@ -858,6 +866,17 @@ class PaymentViewSet(viewsets.ViewSet):
                     "customer_id": default_payment_method.dodo_customer_id,
                 }
                 session_params["show_saved_payment_methods"] = True
+
+            # Let Dodo collect the customer's phone and use the saved phone
+            # requirement when one exists in BillingAddress.  The checkout
+            # phone country selector is controlled by Dodo; it must not be
+            # inferred from the browser's default (which was showing India).
+            session_params["feature_flags"] = {
+                "allow_phone_number_collection": True,
+                "require_phone_number": bool(
+                    billing_address and (billing_address.phone or "").strip()
+                ),
+            }
 
             logger.info("========== DODO CHECKOUT PAYLOAD ==========")
             logger.info("%s", session_params)
