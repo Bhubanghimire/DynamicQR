@@ -13,7 +13,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from DynamicQR.schemas import PaginatedAutoSchema
 from Qr.models import CustomDomain, Project, QRCode, SharePermissions
 from DynamicQR.pagination import CustomPagination
-from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription
+from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
+    PaymentProvider
 from subscriptions.serializers import (
     CheckoutSessionCreateSerializer,
     InvoiceSerializer,
@@ -21,7 +22,7 @@ from subscriptions.serializers import (
     PackageSerializer,
     PaymentMethodSerializer,
     SubscriptionUsageSerializer,
-    SubscriptionUsageSummarySerializer,
+    SubscriptionUsageSummarySerializer, CurrencySerializer, PaymentProviderSerializer,
 )
 from subscriptions.services.dodo_billing_service import DodoBillingService, to_minor_units
 from subscriptions.services.esewa_service import EsewaError, form_for_invoice
@@ -1600,3 +1601,19 @@ class PaymentViewSet(viewsets.ViewSet):
 #             "count": subscriptions.count(),
 #             "subscriptions": serializer.data
 #         })
+
+
+class CurrencyViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Currency.objects.filter(is_active=True).order_by("code")
+    serializer_class = CurrencySerializer
+    permission_classes = [AllowAny]
+    http_method_names = ["get", "head", "options"]
+
+
+class PaymentProviderViewSet(viewsets.ModelViewSet):
+    queryset = PaymentProvider.objects.filter(is_active=True).order_by(
+        "display_order",
+        "name",
+    )
+    serializer_class = PaymentProviderSerializer
+    http_method_names = ["get", "head", "options"]

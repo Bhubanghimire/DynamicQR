@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription
+from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
+    PaymentProvider
 
 
 class DurationSerializer(serializers.ModelSerializer):
@@ -402,3 +403,27 @@ class SubscriptionUpdateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'auto_renew': {'required': True},
         }
+
+
+class CurrencySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Currency
+        fields = (
+            "id",
+            "code",
+            "name",
+            "symbol",
+        )
+
+
+
+class PaymentProviderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentProvider
+        fields = (
+            "id",
+            "code",
+            "name",
+            "is_active",
+            "display_order",
+        )
