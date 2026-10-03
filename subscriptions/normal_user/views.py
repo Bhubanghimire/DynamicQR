@@ -1610,7 +1610,7 @@ class CurrencyViewSet(viewsets.ReadOnlyModelViewSet):
     http_method_names = ["get", "head", "options"]
 
 
-class PaymentProviderViewSet(viewsets.ModelViewSet):
+class PaymentProviderViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PaymentProvider.objects.filter(is_active=True).order_by(
         "display_order",
         "name",
