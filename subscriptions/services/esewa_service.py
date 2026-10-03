@@ -77,6 +77,9 @@ def verify_status(invoice):
     if not settings.ESEWA_PRODUCT_CODE:
         raise EsewaError('eSewa is not configured')
     host = 'uat.esewa.com.np' if settings.ESEWA_TEST_MODE else 'epay.esewa.com.np'
+    transaction_uuid = (invoice.metadata or {}).get("esewa_transaction_uuid")
+    if not transaction_uuid:
+        raise EsewaError("Missing eSewa transaction UUID")
     query = urlencode({
         'product_code': settings.ESEWA_PRODUCT_CODE,
         'total_amount': str(invoice.total),
