@@ -25,7 +25,7 @@ from subscriptions.serializers import (
 )
 from subscriptions.services.dodo_billing_service import DodoBillingService, to_minor_units
 from subscriptions.services.esewa_service import EsewaError, form_for_invoice
-from subscriptions.esewa_views import reconcile_esewa_invoice
+from subscriptions.views import reconcile_esewa_invoice
 
 
 class ProjectSchema(PaginatedAutoSchema):

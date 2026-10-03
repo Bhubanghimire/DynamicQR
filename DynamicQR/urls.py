@@ -9,7 +9,7 @@ from rest_framework.schemas import get_schema_view
 from django.views.generic import TemplateView
 from allauth.socialaccount.providers.google.views import oauth2_login, oauth2_callback
 from subscriptions.webhooks import dodo_webhook
-from subscriptions.esewa_views import esewa_success, esewa_failure
+from subscriptions.views import esewa_success, esewa_failure
 from django.http import JsonResponse
 
 # Base schema view for the project
