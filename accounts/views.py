@@ -27,12 +27,12 @@ from rest_framework.status import HTTP_200_OK, HTTP_400_BAD_REQUEST, HTTP_401_UN
 
 from accounts.middleware import create_user_session, generate_access_token, generate_refresh_token, generate_otp
 from accounts.authentication import JWTAuthentication
-from accounts.models import FAQ, NotificationPreference, OTP, User, Workspace, GoogleOAuthExchangeCode, UserSession
+from accounts.models import BillingAddress, FAQ, NotificationPreference, OTP, User, Workspace, GoogleOAuthExchangeCode, UserSession
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
     ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
     ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer, \
-    NotificationPreferenceSerializer, UserSessionSerializer, WorkspaceSerializer
+    NotificationPreferenceSerializer, UserSessionSerializer, WorkspaceSerializer, BillingAddressSerializer
 from subscriptions.models import Subscription
 from subscriptions.models import Invoice, Payment, PaymentMethod
 
@@ -461,6 +461,7 @@ class ProfileViewset(viewsets.GenericViewSet):
     def get_object(self):
         return self.request.user
 
+
     def get_serializer_class(self):
         if self.action == "update_profile":
             return ProfileUpdateSerializer
@@ -589,6 +590,22 @@ class ProfileViewset(viewsets.GenericViewSet):
         )
         response.delete_cookie("refresh_token", path="/")
         return response
+
+
+class BillingAddressViewSet(viewsets.ModelViewSet):
+    """Authenticated CRUD API for the current user's billing address."""
+
+    serializer_class = BillingAddressSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        return BillingAddress.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        if self.get_queryset().exists():
+            raise serializers.ValidationError({"detail": "Billing address already exists. Use update instead."})
+        serializer.save(user=self.request.user)
 
 
 def _get_dev_social_user():

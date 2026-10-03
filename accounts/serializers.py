@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, UserSession, Workspace
+from accounts.models import BillingAddress, ContactUs, FAQ, NotificationPreference, OTP, User, UserSession, Workspace
 from system.models import ConfigChoice
 
 class LoginSerializer(serializers.Serializer):
@@ -121,6 +121,32 @@ class ProfileImageUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["profile"]
+
+
+class BillingAddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BillingAddress
+        fields = [
+            "id",
+            "full_name",
+            "company_name",
+            "address_line_1",
+            "address_line_2",
+            "city",
+            "state_province",
+            "postal_code",
+            "country",
+            "phone",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_country(self, value):
+        value = value.strip().upper()
+        if len(value) != 2 or not value.isalpha():
+            raise serializers.ValidationError("Country must be a two-letter ISO code, such as NP or US.")
+        return value
 
 class UserAdminUpdateSerializer(serializers.ModelSerializer):
     class Meta:

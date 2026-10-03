@@ -1,12 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from accounts.views import AuthViewSet, ProfileViewset, GoogleLoginRedirectAPIView, GoogleLoginCompleteAPIView, GoogleOAuthExchangeAPIView, ContactUsSubmitAPIView, FAQListAPIView, WorkspaceAPIView
+from accounts.views import AuthViewSet, BillingAddressViewSet, ProfileViewset, GoogleLoginRedirectAPIView, GoogleLoginCompleteAPIView, GoogleOAuthExchangeAPIView, ContactUsSubmitAPIView, FAQListAPIView, WorkspaceAPIView
 
 app_name = "accounts_user"
 
 account_router = DefaultRouter()
 account_router.register(r'auth', AuthViewSet, basename='auth')
 account_router.register(r'profile', ProfileViewset, basename='profile')
+account_router.register(r'billing-addresses', BillingAddressViewSet, basename='billing-addresses')
 
 # account_router.register(r'profile', ProfileViewSet, basename='profile')
 # account_router.register(r'chat', ChatViewSet, basename='chat')
