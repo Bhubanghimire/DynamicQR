@@ -152,8 +152,12 @@ class DodoProductService:
             plan.dodo_product_id,
         )
 
+        # The Dodo SDK expects the product identifier as the first
+        # positional argument.  Passing it as ``id=`` does not match the
+        # SDK method signature, so the local plan was saved while the Dodo
+        # product was never updated.
         response = self.client.products.update(
-            id=plan.dodo_product_id,
+            plan.dodo_product_id,
             **payload,
         )
 
@@ -366,7 +370,10 @@ class DodoProductService:
                 f"PackagePlan {plan.pk} cannot have a negative price."
             )
 
-        currency = plan.currency.upper()
+        # ``currency`` is a Currency model relation, not a string.
+        # Calling ``upper()`` on the relation made every post-save Dodo
+        # synchronization fail before the product was created/updated.
+        currency = (plan.currency.code or "").upper()
 
         if len(currency) != 3:
             raise ValueError(

@@ -609,7 +609,7 @@ class PaymentViewSet(viewsets.ViewSet):
                 "user_email": request_user.email,
                 "package_plan_id": str(plan.id),
                 "package_plan_price": str(plan.price),
-                "package_plan_currency": plan.currency or "USD",
+                "package_plan_currency": str(plan.currency),
                 "plan_name": self._build_plan_name(plan),
                 "duration_days": str(plan.duration.days if plan.duration else 0),
                 "auto_renew": "true",
@@ -799,14 +799,28 @@ class PaymentViewSet(viewsets.ViewSet):
             # Convert our BillingAddress model to Dodo's format
             dodo_billing_address = None
 
+            # BillingAddress.country is stored as a two-letter ISO code in
+            # the billing address table. Use that value for every country;
+            # never replace it with a hardcoded country.
             if billing_address:
-                dodo_billing_address = {
-                    "country": billing_address.country,
-                    "street": billing_address.address_line_1,
-                    "city": billing_address.city,
-                    "state": billing_address.state_province,
-                    "zipcode": billing_address.postal_code,
-                }
+                country = (billing_address.country or "").strip().upper()
+
+                required_address = (
+                    country,
+                    billing_address.address_line_1,
+                    billing_address.city,
+                    billing_address.postal_code,
+                )
+                if all(str(value or "").strip() for value in required_address):
+                    dodo_billing_address = {
+                        "country": country,
+                        "street": billing_address.address_line_1,
+                        "city": billing_address.city,
+                        "zipcode": billing_address.postal_code,
+                    }
+                    if billing_address.state_province:
+                        dodo_billing_address["state"] = billing_address.state_province
+
             session_params = {
                 "product_cart": [
                     {
@@ -844,6 +858,10 @@ class PaymentViewSet(viewsets.ViewSet):
                     "customer_id": default_payment_method.dodo_customer_id,
                 }
                 session_params["show_saved_payment_methods"] = True
+
+            logger.info("========== DODO CHECKOUT PAYLOAD ==========")
+            logger.info("%s", session_params)
+            logger.info("===========================================")
 
             session = client.checkout_sessions.create(**session_params)
 
@@ -943,7 +961,7 @@ class PaymentViewSet(viewsets.ViewSet):
                     "invoice_number": invoice.invoice_number,
                     "invoice_id": str(invoice.id),
                     "amount": str(plan.price),
-                    "currency": plan.currency or "USD",
+                    "currency": plan.currency.code if plan.currency else "USD",
                     "plan_name": self._build_plan_name(plan),
                     "auto_renew": auto_renew,
                 },
