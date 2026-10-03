@@ -21,8 +21,17 @@ class CategorySchema(PaginatedAutoSchema):
         return ["Category"]
 
 
+class ConfigCategorySchema(AdminAutoSchema):
+    """Keep system endpoints separate for normal users and admins."""
+
+    def get_tags(self, path, method):
+        if "/api/v1.1/admin/system/" in path:
+            return ["Admin System"]
+        return ["System"]
+
+
 class ConfigCategoryViewSet(viewsets.ModelViewSet):
-    schema = AdminAutoSchema()
+    schema = ConfigCategorySchema()
     queryset = ConfigCategory.objects.all().order_by("id")
     serializer_class = ConfigCategorySerializer
     permission_classes = [AllowAny]

@@ -209,3 +209,31 @@ class UserSession(models.Model):
 
     def __str__(self):
         return f'{self.user.email} - {self.session_id}'
+
+
+class BillingAddress(SoftDeletable):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="billing_address",
+    )
+
+    full_name = models.CharField(max_length=255)
+    company_name = models.CharField(max_length=255, blank=True)
+
+    address_line_1 = models.CharField(max_length=255)
+    address_line_2 = models.CharField(max_length=255, blank=True)
+
+    city = models.CharField(max_length=100)
+    state_province = models.CharField(max_length=100, blank=True)
+    postal_code = models.CharField(max_length=30, blank=True)
+
+    country = models.CharField(max_length=2)
+
+    phone = models.CharField(max_length=30, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.country}"

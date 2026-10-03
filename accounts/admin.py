@@ -2,7 +2,7 @@ from django import forms
 from django.db import models
 from django.contrib import admin
 
-from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, Workspace
+from accounts.models import ContactUs, FAQ, NotificationPreference, OTP, User, Workspace, BillingAddress
 
 
 @admin.register(User)
@@ -65,3 +65,81 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):
 @admin.register(Workspace)
 class WorkspaceAdmin(admin.ModelAdmin):
     list_display = ['id',"name"]
+
+
+
+
+@admin.register(BillingAddress)
+class BillingAddressAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "full_name",
+        "company_name",
+        "city",
+        "state_province",
+        "country",
+        "postal_code",
+        "phone",
+        "updated_at",
+    )
+
+    list_filter = (
+        "country",
+        "state_province",
+    )
+
+    search_fields = (
+        "user__email",
+        "user__username",
+        "full_name",
+        "company_name",
+        "city",
+        "postal_code",
+        "phone",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+    fieldsets = (
+        (
+            "User",
+            {
+                "fields": ("user",),
+            },
+        ),
+        (
+            "Billing Information",
+            {
+                "fields": (
+                    "full_name",
+                    "company_name",
+                    "phone",
+                ),
+            },
+        ),
+        (
+            "Address",
+            {
+                "fields": (
+                    "address_line_1",
+                    "address_line_2",
+                    "city",
+                    "state_province",
+                    "postal_code",
+                    "country",
+                ),
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                ),
+            },
+        ),
+    )
