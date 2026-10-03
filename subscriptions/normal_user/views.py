@@ -610,7 +610,7 @@ class PaymentViewSet(viewsets.ViewSet):
                 "user_email": request_user.email,
                 "package_plan_id": str(plan.id),
                 "package_plan_price": str(plan.price),
-                "package_plan_currency": plan.currency or "USD",
+                "package_plan_currency": plan.currency,
                 "plan_name": self._build_plan_name(plan),
                 "duration_days": str(plan.duration.days if plan.duration else 0),
                 "auto_renew": "true",
@@ -633,7 +633,7 @@ class PaymentViewSet(viewsets.ViewSet):
             return Response({"detail": "Package plan not found or inactive."}, status=404)
         if plan.package.is_free or plan.price <= 0:
             return Response({"detail": "This package does not require payment."}, status=400)
-        if plan.currency.upper() != "NPR":
+        if plan.currency.code.upper() != "NPR":
             return Response({"detail": "eSewa checkout requires an NPR package price."}, status=400)
         if str(request.data.get("auto_renew", "false")).lower() in {"true", "1", "yes"}:
             return Response({"detail": "eSewa checkout does not support auto-renew."}, status=400)
@@ -651,7 +651,7 @@ class PaymentViewSet(viewsets.ViewSet):
 
         invoice = Invoice.objects.create(
             user=request.user, package_plan=plan, amount=plan.price, tax=0,
-            total=plan.price, currency="NPR",
+            total=plan.price, currency=plan.currency,
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
             metadata={
@@ -763,7 +763,7 @@ class PaymentViewSet(viewsets.ViewSet):
             amount=plan.price,
             tax=0,
             total=plan.price,
-            currency=plan.currency or "USD",
+            currency=plan.currency,
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
             billing_address={},
@@ -801,7 +801,7 @@ class PaymentViewSet(viewsets.ViewSet):
                     "user_email": request.user.email,
                     "package_plan_id": str(plan.id),
                     "package_plan_price": str(plan.price),
-                    "package_plan_currency": plan.currency or "USD",
+                    "package_plan_currency": plan.currency.code,
                     "plan_name": self._build_plan_name(plan),
                     "duration_days": str(plan.duration.days if plan.duration else 0),
                     "auto_renew": "true" if auto_renew else "false",

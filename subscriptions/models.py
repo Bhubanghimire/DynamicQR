@@ -501,7 +501,7 @@ class Subscription(SoftDeletable):
             subscription.status = cls.Status.ACTIVE
             subscription.expires_at = expires_at
             subscription.price = Decimal("0.00")
-            subscription.currency = free_plan.currency or "USD"
+            subscription.currency = free_plan.currency
             subscription.qr_limit = free_plan.max_qrs
             subscription.scan_limit = free_plan.max_scans
             subscription.scan_limit_remaining = free_plan.max_scans
@@ -518,7 +518,7 @@ class Subscription(SoftDeletable):
             package_plan=free_plan,
             payment_method=None,
             price=Decimal("0.00"),
-            currency=free_plan.currency or "USD",
+            currency=free_plan.currency,
             qr_limit=free_plan.max_qrs,
             scan_limit=free_plan.max_scans,
             scan_limit_remaining=free_plan.max_scans,
