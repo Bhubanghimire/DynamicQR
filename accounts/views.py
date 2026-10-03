@@ -184,6 +184,9 @@ class AccountsAuthSchema(AdminAutoSchema):
 
 
 class ProfileSchema(AccountsAuthSchema):
+    def get_tags(self, path, method):
+        return ["Profile"]
+
     def get_operation_id(self, path, method):
         return f"accounts_profile_{self.view.action}"
 
@@ -596,6 +599,7 @@ class BillingAddressViewSet(viewsets.ModelViewSet):
     """Authenticated CRUD API for the current user's billing address."""
 
     serializer_class = BillingAddressSerializer
+    schema = ProfileSchema()
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
