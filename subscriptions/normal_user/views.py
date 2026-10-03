@@ -609,7 +609,7 @@ class PaymentViewSet(viewsets.ViewSet):
                 "user_email": request_user.email,
                 "package_plan_id": str(plan.id),
                 "package_plan_price": str(plan.price),
-                "package_plan_currency": plan.currency,
+                "package_plan_currency": plan.currency or "USD",
                 "plan_name": self._build_plan_name(plan),
                 "duration_days": str(plan.duration.days if plan.duration else 0),
                 "auto_renew": "true",
@@ -756,6 +756,22 @@ class PaymentViewSet(viewsets.ViewSet):
                 )
 
         # Create invoice first
+        billing_address = getattr(request.user, "billing_address", None)
+
+        billing_snapshot = {}
+
+        if billing_address:
+            billing_snapshot = {
+                "full_name": billing_address.full_name,
+                "company_name": billing_address.company_name,
+                "address_line_1": billing_address.address_line_1,
+                "address_line_2": billing_address.address_line_2,
+                "city": billing_address.city,
+                "state_province": billing_address.state_province,
+                "postal_code": billing_address.postal_code,
+                "country": billing_address.country,
+                "phone": billing_address.phone,
+            }
         invoice = Invoice.objects.create(
             user=request.user,
             package_plan=plan,
@@ -765,7 +781,7 @@ class PaymentViewSet(viewsets.ViewSet):
             currency=plan.currency,
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
-            billing_address={},
+            billing_address=billing_snapshot,
             metadata={
                 "user_email": request.user.email,
                 "plan_name": self._build_plan_name(plan),
@@ -780,6 +796,17 @@ class PaymentViewSet(viewsets.ViewSet):
             client = self._get_dodo_client()
 
             # Build common session parameters
+            # Convert our BillingAddress model to Dodo's format
+            dodo_billing_address = None
+
+            if billing_address:
+                dodo_billing_address = {
+                    "country": billing_address.country,
+                    "street": billing_address.address_line_1,
+                    "city": billing_address.city,
+                    "state": billing_address.state_province,
+                    "zipcode": billing_address.postal_code,
+                }
             session_params = {
                 "product_cart": [
                     {
@@ -807,17 +834,17 @@ class PaymentViewSet(viewsets.ViewSet):
                 },
             }
 
-            # If user has saved payment method, use it
+            # Send billing address to Dodo checkout
+            if dodo_billing_address:
+                session_params["billing_address"] = dodo_billing_address
+
+            # Use saved Dodo customer if available
             if default_payment_method and default_payment_method.dodo_customer_id:
                 session_params["customer"] = {
                     "customer_id": default_payment_method.dodo_customer_id,
                 }
                 session_params["show_saved_payment_methods"] = True
-                if default_payment_method.billing_address:
-                    invoice.billing_address = default_payment_method.billing_address
-                    invoice.save(update_fields=["billing_address", "updated_at"])
 
-            # Create checkout session
             session = client.checkout_sessions.create(**session_params)
 
             # ============================================================
