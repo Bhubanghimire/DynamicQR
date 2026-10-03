@@ -267,7 +267,7 @@ class DodoProductService:
     # ============================================================
 
     def _build_price(self, plan):
-        currency = (plan.currency or "USD").upper()
+        currency = plan.currency.code.upper()
 
         amount = self._to_minor_units(
             plan.price,

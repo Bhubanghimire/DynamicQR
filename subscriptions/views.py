@@ -11,7 +11,7 @@ from django.db import transaction
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.views.decorators.http import require_GET
 
-from subscriptions.models import Invoice, Payment
+from subscriptions.models import Invoice, Payment, PaymentProvider
 from subscriptions.services.esewa_service import EsewaError, decode_callback, verify_status
 
 logger = logging.getLogger(__name__)
@@ -70,13 +70,19 @@ def reconcile_esewa_invoice(invoice, callback=None):
             if locked.subscription and not locked.subscription.auto_renew:
                 locked.subscription.next_billing_date = None
                 locked.subscription.save(update_fields=['next_billing_date', 'updated_at'])
+
+            esewa_provider = PaymentProvider.objects.get(
+                code="esewa",
+                is_active=True,
+            )
+
             Payment.objects.create(
                 user=locked.user,
                 subscription=locked.subscription,
                 invoice=locked,
                 amount=locked.total,
                 currency=locked.currency,
-                provider=Payment.Provider.ESEWA,
+                provider=esewa_provider,
                 transaction_id=f'esewa:{transaction_uuid}',
                 payment_type=Payment.PaymentType.INITIAL,
                 status=Payment.Status.SUCCESS,
