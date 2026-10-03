@@ -10,7 +10,7 @@ from .models import (
     PaymentWebhook,
     Payment,
     PackageHistory,
-    SubscriptionChangeLog,
+    SubscriptionChangeLog, Currency, PaymentProvider,
 )
 
 
@@ -825,3 +825,32 @@ class SubscriptionChangeLogAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+
+
+@admin.register(Currency)
+class CurrencyAdmin(admin.ModelAdmin):
+    list_display = (
+        "code",
+        "name",
+        "symbol",
+        "is_active",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("code", "name")
+    ordering = ("code",)
+
+
+@admin.register(PaymentProvider)
+class PaymentProviderAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "code",
+        "is_active",
+        "display_order",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("name", "code")
+    ordering = ("display_order", "name")
+    filter_horizontal = ("supported_currencies",)
