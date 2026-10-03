@@ -2,14 +2,11 @@ import os
 import uuid
 from urllib.parse import urlparse
 from urllib.request import urlopen
-
 from django.core.files.base import ContentFile
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialLogin
-
 from accounts.models import User
-
 
 class GoogleFirstExistingUserSocialAccountAdapter(DefaultSocialAccountAdapter):
     @staticmethod
@@ -83,5 +80,14 @@ class GoogleFirstExistingUserSocialAccountAdapter(DefaultSocialAccountAdapter):
 
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form=form)
+        
+        # Assign default normal user type if not already set
+        if not user.user_type:
+            from system.models import ConfigChoice
+            normal_user_type = ConfigChoice.objects.filter(name="Normal User").first()
+            if normal_user_type:
+                user.user_type = normal_user_type
+                user.save(update_fields=["user_type"])
+        
         self._sync_google_user_fields(user, sociallogin)
         return user

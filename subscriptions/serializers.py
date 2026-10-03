@@ -14,6 +14,24 @@ class DurationSerializer(serializers.ModelSerializer):
         )
 
 
+class AdminDurationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Duration
+        fields = (
+            "id",
+            "name",
+            "days",
+            "discount",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "created_at",
+            "updated_at",
+        )
+
+
 class CheckoutSessionCreateSerializer(serializers.Serializer):
     product_id = serializers.CharField(required=False, allow_blank=False)
     package_plan_id = serializers.CharField(required=False, allow_blank=False)
@@ -55,6 +73,91 @@ class PackagePlanSerializer(serializers.ModelSerializer):
             "features",
             "is_active",
         )
+
+
+class AdminPackagePlanSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(required=False)
+    duration = DurationSerializer(read_only=True)
+    duration_id = serializers.PrimaryKeyRelatedField(
+        queryset=Duration.objects.all(),
+        source="duration",
+        write_only=True,
+    )
+
+    class Meta:
+        model = PackagePlan
+        fields = (
+            "id",
+            "duration",
+            "duration_id",
+            "price",
+            "currency",
+            "max_qrs",
+            "max_scans",
+            "max_team_members",
+            "max_bulk_upload",
+            "max_domain_add",
+            "features",
+            "dodo_product_id",
+            "is_active",
+        )
+        read_only_fields = ("id",)
+
+
+class AdminPackageSerializer(serializers.ModelSerializer):
+    plans = AdminPackagePlanSerializer(source="packageplan_set", many=True, required=False)
+
+    class Meta:
+        model = Package
+        fields = (
+            "id",
+            "title",
+            "description",
+            "is_free",
+            "is_active",
+            "is_featured",
+            "display_order",
+            "metadata",
+            "plans",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "created_at",
+            "updated_at",
+        )
+
+    def create(self, validated_data):
+        plans_data = validated_data.pop("packageplan_set", [])
+        package = Package.objects.create(**validated_data)
+        for plan_data in plans_data:
+            PackagePlan.objects.create(package=package, **plan_data)
+        return package
+
+    def update(self, instance, validated_data):
+        plans_data = validated_data.pop("packageplan_set", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if plans_data is not None:
+            existing_plans = {plan.id: plan for plan in instance.packageplan_set.all()}
+            for plan_data in plans_data:
+                plan_id = plan_data.pop("id", None)
+                if plan_id:
+                    if plan_id not in existing_plans:
+                        raise serializers.ValidationError({
+                            "plans": f"Plan id {plan_id} does not belong to this package."
+                        })
+                    plan = existing_plans[plan_id]
+                    for attr, value in plan_data.items():
+                        setattr(plan, attr, value)
+                    plan.save()
+                else:
+                    PackagePlan.objects.create(package=instance, **plan_data)
+
+        return instance
 
 
 class PackageSerializer(serializers.ModelSerializer):
@@ -131,6 +234,9 @@ class SubscriptionSummarySerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    payment_provider = serializers.SerializerMethodField()
+    payment_reference = serializers.SerializerMethodField()
+    full_name = serializers.CharField(source="user.full_name", read_only=True)
     package_plan = InvoicePackagePlanSerializer(read_only=True)
     payment_method = PaymentMethodSerializer(read_only=True)
     subscription = SubscriptionSummarySerializer(read_only=True)
@@ -141,6 +247,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "invoice_number",
+            "full_name",
             "status",
             "status_display",
             "amount",
@@ -150,6 +257,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "due_date",
             "issued_at",
             "paid_at",
+            "payment_provider",
+            "payment_reference",
             "invoice_items",
             "notes",
             "billing_address",
@@ -158,6 +267,30 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "subscription",
             "created_at",
             "updated_at",
+        )
+
+
+    def get_payment_provider(self, obj):
+        return (obj.metadata or {}).get("payment_provider", "dodo")
+
+    def get_payment_reference(self, obj):
+        if self.get_payment_provider(obj) == "esewa":
+            return (obj.metadata or {}).get("esewa_transaction_code")
+        return obj.dodo_payment_id
+
+
+class InvoiceUserSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(source="full_name", read_only=True)
+
+
+class AdminInvoiceSerializer(InvoiceSerializer):
+    user = InvoiceUserSerializer(read_only=True)
+
+    class Meta(InvoiceSerializer.Meta):
+        fields = tuple(
+            "user" if field == "full_name" else field
+            for field in InvoiceSerializer.Meta.fields
         )
 
 

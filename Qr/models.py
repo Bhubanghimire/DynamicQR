@@ -6,7 +6,7 @@ import secrets
 import string
 #from pytz import timezone
 
-from accounts.views import User
+from accounts.models import User
 from system.models import ConfigChoice, SoftDeletable
 
 

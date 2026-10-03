@@ -1,8 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
-
+from django.test import Client, SimpleTestCase, TestCase
 from accounts.adapters import GoogleFirstExistingUserSocialAccountAdapter
 from accounts.models import User
 
@@ -52,3 +51,67 @@ class GoogleSocialSyncTests(TestCase):
         self.assertFalse(updated)
         self.assertEqual(self.user.full_name, "Old Name")
         self.assertFalse(mocked_urlopen.called)
+
+
+class AdminSwaggerQueryParameterTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        response = Client().get("/api/admin/schema/")
+        assert response.status_code == 200
+        cls.paths = response.json()["paths"]
+
+    def parameters_for(self, path):
+        return {
+            parameter["name"]: parameter
+            for parameter in self.paths[path]["get"].get("parameters", [])
+        }
+
+    def test_admin_model_lists_document_their_supported_filters(self):
+        user_parameters = self.parameters_for("/api/v1.1/admin/accounts/users/")
+        self.assertEqual(
+            user_parameters["status"]["schema"]["enum"],
+            ["active", "expired", "cancelled", "pending", "failed", "grace_period"],
+        )
+        self.assertIn("plan", user_parameters)
+
+        domain_parameters = self.parameters_for("/api/v1.1/admin/projects/domains/")
+        self.assertIn("search", domain_parameters)
+        self.assertEqual(domain_parameters["user_id"]["schema"]["format"], "uuid")
+        self.assertEqual(domain_parameters["is_default"]["schema"]["enum"], ["true", "false"])
+
+        invoice_parameters = self.parameters_for("/api/v1.1/admin/subscriptions/invoices/")
+        self.assertEqual(
+            invoice_parameters["status"]["schema"]["enum"],
+            ["draft", "pending", "paid", "overdue", "cancelled", "refunded"],
+        )
+        self.assertEqual(invoice_parameters["user_id"]["schema"]["format"], "uuid")
+
+        invoice_status_count_parameters = self.parameters_for(
+            "/api/v1.1/admin/subscriptions/invoices/status-counts/"
+        )
+        self.assertEqual(invoice_status_count_parameters["user_id"]["schema"]["format"], "uuid")
+
+    def test_analytics_parameters_are_specific_to_each_list_action(self):
+        top_users = self.parameters_for("/api/v1.1/admin/analytics/dashboard/top-power-users/")
+        self.assertIn("search", top_users)
+        self.assertIn("user_id", top_users)
+        self.assertNotIn("period", top_users)
+
+        qr_trend = self.parameters_for("/api/v1.1/admin/analytics/dashboard/qr-generation-trend/")
+        self.assertTrue(qr_trend["period"]["required"])
+        self.assertIn("qr_type", qr_trend)
+        self.assertIn("qr_status", qr_trend)
+
+        plan_metrics = self.parameters_for("/api/v1.1/admin/analytics/dashboard/plan-metrics/")
+        self.assertIn("subscription_status", plan_metrics)
+        self.assertIn("is_bot", plan_metrics)
+
+    def test_system_search_is_only_shown_where_it_is_applied(self):
+        categories = self.parameters_for("/api/v1.1/admin/system/config-categories/")
+        choices = self.parameters_for("/api/v1.1/admin/system/config-categories/{id}/choices/")
+        category_detail = self.parameters_for("/api/v1.1/admin/system/config-categories/{id}/")
+
+        self.assertIn("search", categories)
+        self.assertIn("search", choices)
+        self.assertNotIn("search", category_detail)

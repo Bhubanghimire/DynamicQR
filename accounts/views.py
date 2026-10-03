@@ -39,6 +39,34 @@ from subscriptions.models import Invoice, Payment, PaymentMethod
 from django.core import signing
 from urllib.parse import urlencode
 
+
+def admin_query_parameter(
+    name,
+    description,
+    *,
+    value_type="string",
+    enum=None,
+    value_format=None,
+    example=None,
+    required=False,
+):
+    """Build one OpenAPI query parameter used by admin list endpoints."""
+
+    schema = {"type": value_type}
+    if enum is not None:
+        schema["enum"] = list(enum)
+    if value_format is not None:
+        schema["format"] = value_format
+    if example is not None:
+        schema["example"] = example
+    return {
+        "name": name,
+        "required": required,
+        "in": "query",
+        "description": description,
+        "schema": schema,
+    }
+
 def set_refresh_cookie(response, refresh_token):
     """
     Use HTTPS-only cookie settings in production, but allow local HTTP dev.
@@ -66,10 +94,54 @@ def set_refresh_cookie(response, refresh_token):
     return response
 
 
-class AccountsAuthSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
+class AdminAutoSchema(AutoSchema):
+    """Admin schema with declarative, action-specific query parameters."""
 
+    def get_filter_parameters(self, path, method):
+        parameters = super().get_filter_parameters(path, method)
+        if method.upper() != "GET":
+            return parameters
+
+        if not hasattr(self.view, "swagger_query_parameters"):
+            return parameters
+
+        configured = self.view.swagger_query_parameters
+        action = getattr(self.view, "action", None)
+        if isinstance(configured, dict):
+            if action not in configured:
+                return []
+            custom_parameters = configured[action]
+        else:
+            custom_parameters = configured
+
+        # Replace automatically generated parameters with the documented version
+        # when names overlap (for example DRF's generic SearchFilter parameter).
+        for custom_parameter in custom_parameters:
+            key = (custom_parameter.get("name"), custom_parameter.get("in", "query"))
+            for index, parameter in enumerate(parameters):
+                if (parameter.get("name"), parameter.get("in", "query")) == key:
+                    parameters[index] = custom_parameter
+                    break
+            else:
+                parameters.append(custom_parameter)
+        return parameters
+
+    def get_tags(self, path, method):
+        if '/api/v1.1/admin/subscriptions/' in path:
+            return ["Admin Subscriptions"]
+        if '/api/v1.1/admin/analytics/' in path:
+            return ["Admin Analytics"]
+        if '/api/v1.1/admin/projects/' in path:
+            return ["Admin Projects"]
+        if '/api/v1.1/admin/system/' in path:
+            return ["Admin System"]
+        if '/api/v1.1/admin/accounts/faqs/' in path:
+            return ["Admin FAQs"]
+        if '/api/v1.1/admin/accounts/' in path:
+            return ["Admin Accounts"]
+        return ["Admin API"]
+
+class AccountsAuthSchema(AdminAutoSchema):
     def get_operation_id(self, path, method):
         return f"accounts_{self.view.action}"
 
@@ -133,6 +205,7 @@ class AuthViewSet(viewsets.ViewSet):
         'forget_password': [AllowAny],
         'otp_verify': [AllowAny],
         'change_password': [IsAuthenticated],
+        'logout': [AllowAny],
     }
 
     def get_permissions(self):
@@ -144,12 +217,6 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['POST'], url_path='refresh')
     @csrf_exempt
     def refresh(self, request):
-        # serializer = RefreshSerializer(data=refresh_token)
-        # serializer.is_valid(raise_exception=True)
-        # token = serializer.validated_data['refresh_token']
-        # if token is None:
-        #     return Response({"message": "please send refresh token in payload"}, status=HTTP_400_BAD_REQUEST)
-
         refresh_token = request.COOKIES.get("refresh_token")
 
         if not refresh_token:
@@ -182,7 +249,9 @@ class AuthViewSet(viewsets.ViewSet):
             ).first()
 
         if session is None:
-            session = create_user_session(user, request)
+            # FIX: Do NOT create a new session here. If the session is revoked or missing,
+            # the refresh token is invalid and the user must login again.
+            raise exceptions.AuthenticationFailed('Session revoked or not found. Please login again.')
 
         access_token = generate_access_token(user, session.session_id)
         refresh_token = generate_refresh_token(user, session.session_id)
@@ -192,12 +261,33 @@ class AuthViewSet(viewsets.ViewSet):
                 "data": {
                     "access_token": access_token,
                 },
-                "message": "Logged in successfully."
+                "message": "Tokens refreshed successfully."
             },
             status=HTTP_200_OK,
         )
 
         return set_refresh_cookie(response, refresh_token)
+
+    @action(detail=False, methods=['POST'], url_path='logout')
+    @csrf_exempt
+    def logout(self, request):
+        refresh_token = request.COOKIES.get("refresh_token")
+        
+        if refresh_token:
+            try:
+                payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=['HS256'])
+                session_id = payload.get("session_id")
+                if session_id:
+                    UserSession.objects.filter(session_id=session_id).update(is_revoked=True)
+            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+                pass # Token is already invalid, just proceed to clear cookie
+
+        response = Response(
+            {"message": "Logged out successfully."},
+            status=HTTP_200_OK
+        )
+        response.delete_cookie("refresh_token", path="/")
+        return response
 
     @action(detail=False, methods=['POST'], url_path='login')
     def login(self, request):
@@ -209,6 +299,11 @@ class AuthViewSet(viewsets.ViewSet):
         if user is None:
             raise serializers.ValidationError(
                 {"message": "A user with this email and password was not found."}
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                {"message": "Your account is disabled. Please contact support."}
             )
 
         is_correct = check_password(password, user.password)
@@ -229,6 +324,7 @@ class AuthViewSet(viewsets.ViewSet):
                     "access_token": access_token,
                     "email": user.email,
                     "is_two_factor_enabled": user.is_two_factor_enabled,
+                    "user_type":user.user_type.id if user.user_type else "",
                 },
                 "message": "Logged in successfully."
             },
@@ -527,18 +623,12 @@ def _get_dev_social_user():
 
     return user
 
-class GoogleLoginRedirectSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class GoogleLoginRedirectSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_google_login"
 
 
-class GoogleLoginCompleteSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class GoogleLoginCompleteSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_google_login_complete"
 
@@ -593,10 +683,7 @@ class GoogleLoginCompleteAPIView(APIView):
             f"{frontend_url}{separator}code={raw_code}"
         )
 
-class GoogleOAuthExchangeSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class GoogleOAuthExchangeSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_google_oauth_exchange"
 
@@ -611,10 +698,7 @@ class GoogleOAuthExchangeSchema(AutoSchema):
         return super().get_response_serializer(path, method)
 
 
-class ContactUsSubmitSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class ContactUsSubmitSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return "accounts_contact_us_submit"
 
@@ -629,10 +713,7 @@ class ContactUsSubmitSchema(AutoSchema):
         return super().get_response_serializer(path, method)
 
 
-class WorkspaceSchema(AutoSchema):
-    def get_tags(self, path, method):
-        return ["Accounts"]
-
+class WorkspaceSchema(AccountsAuthSchema):
     def get_operation_id(self, path, method):
         return f"accounts_workspace_{method.lower()}"
 
