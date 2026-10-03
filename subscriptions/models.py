@@ -9,6 +9,33 @@ from system.models import SoftDeletable
 
 
 # Create your models here.
+class Currency(SoftDeletable):
+    code = models.CharField(
+        max_length=3,
+        unique=True,
+    )
+
+    name = models.CharField(
+        max_length=100,
+    )
+
+    symbol = models.CharField(
+        max_length=10,
+        blank=True,
+    )
+
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
 class Package(SoftDeletable):
     """
         Main package/plan container
@@ -64,7 +91,11 @@ class PackagePlan(SoftDeletable):
     package = models.ForeignKey(Package, on_delete=models.PROTECT, null=True)
     duration = models.ForeignKey(Duration, on_delete=models.RESTRICT, null=True)
     price =models.DecimalField(max_digits=10, decimal_places=2)
-    currency =models.CharField(max_length=10)
+    currency = models.ForeignKey(
+        Currency,
+        on_delete=models.PROTECT,
+        related_name="package_plans",
+    )
     # Limits (directly on plan for flexibility)
     max_qrs = models.PositiveIntegerField(
         null=True,
@@ -715,14 +746,53 @@ class PaymentWebhook(SoftDeletable):
         return f"{self.event_type} - {self.event_id}"
 
 
+
+
+class PaymentProvider(SoftDeletable):
+    """
+    Payment providers available for customer checkout.
+
+    Currency support is NOT stored here.
+    Each payment provider service is responsible for
+    validating whether it can process the plan's currency.
+    """
+
+    code = models.CharField(
+        max_length=30,
+        unique=True,
+    )
+
+    name = models.CharField(
+        max_length=100,
+    )
+
+    supported_currencies = models.ManyToManyField(
+        Currency,
+        related_name="payment_providers",
+        blank=True,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    display_order = models.PositiveIntegerField(
+        default=0,
+    )
+
+    class Meta:
+        ordering = ["display_order", "name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Payment(SoftDeletable):
     """
     Payment transaction record
     """
 
-    class Provider(models.TextChoices):
-        DODO = "dodo", "Dodo"
-        ESEWA = "esewa", "eSewa"
+
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -762,13 +832,17 @@ class Payment(SoftDeletable):
 
     # Amounts
     amount = models.DecimalField(max_digits=12, decimal_places=2)
-    currency = models.CharField(max_length=3, default="NPR")
+    currency = models.ForeignKey(
+        Currency,
+        on_delete=models.PROTECT,
+        related_name="payments",
+    )
 
     # Payment provider
-    provider = models.CharField(
-        max_length=20,
-        choices=Provider.choices,
-        default=Provider.DODO,
+    provider = models.ForeignKey(
+        PaymentProvider,
+        on_delete=models.PROTECT,
+
     )
 
     # Dodo Payment integration
