@@ -294,9 +294,7 @@ class Subscription(SoftDeletable):
         default=0,
     )
 
-    currency = models.CharField(
-        max_length=3,
-    )
+    currency = models.ForeignKey(Currency, on_delete=models.PROTECT)
     qr_limit = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -612,7 +610,7 @@ class Invoice(SoftDeletable):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=12, decimal_places=2)
-    currency = models.CharField(max_length=3, default="NPR")
+    currency =models.ForeignKey(Currency, on_delete=models.PROTECT)
 
     # Dodo Payments references - ADD THESE FIELDS
     dodo_checkout_session_id = models.CharField(
@@ -752,9 +750,9 @@ class PaymentProvider(SoftDeletable):
     """
     Payment providers available for customer checkout.
 
-    Currency support is NOT stored here.
-    Each payment provider service is responsible for
-    validating whether it can process the plan's currency.
+    supported_currencies defines the currencies that this provider
+    is configured to accept. Provider services must still validate
+    the actual transaction against the provider's API requirements.
     """
 
     code = models.CharField(
