@@ -14,7 +14,7 @@ from DynamicQR.schemas import PaginatedAutoSchema
 from Qr.models import CustomDomain, Project, QRCode, SharePermissions
 from DynamicQR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
-    PaymentProvider
+    PaymentProvider, PackagePlanPrice
 from subscriptions.serializers import (
     CheckoutSessionCreateSerializer,
     InvoiceSerializer,
@@ -445,6 +445,11 @@ class PaymentSchema(PaginatedAutoSchema):
                                 "format": "uuid",
                                 "description": "Package plan UUID to purchase.",
                             },
+                            "package_plan_price_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "description": "Selected package plan price UUID.",
+                            },
                             "quantity": {
                                 "type": "integer",
                                 "minimum": 1,
@@ -460,7 +465,7 @@ class PaymentSchema(PaginatedAutoSchema):
                                 ),
                             },
                         },
-                        "required": ["package_plan_id"],
+                        "required": ["package_plan_id", "package_plan_price_id"],
                     }
                 }
             }
@@ -706,6 +711,7 @@ class PaymentViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
 
         package_plan_id = serializer.validated_data["package_plan_id"]
+        package_plan_price_id = serializer.validated_data.get("package_plan_price_id")
         auto_renew = serializer.validated_data.get("auto_renew", False)
         default_payment_method = self._get_default_payment_method(request.user)
 
@@ -735,12 +741,33 @@ class PaymentViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check if plan has a Dodo product ID
-        if not plan.dodo_product_id:
+        if not package_plan_price_id:
+            return Response(
+                {"package_plan_price_id": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        price = (
+            PackagePlanPrice.objects
+            .select_related("currency")
+            .filter(
+                id=package_plan_price_id,
+                package_plan=plan,
+                is_active=True,
+            )
+            .first()
+        )
+        if not price:
+            return Response(
+                {"detail": "Selected package price was not found or is inactive."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not price.dodo_product_id:
             return Response(
                 {
                     "detail": (
-                        "This package plan is not configured with a Dodo product ID. "
+                        "This package price is not configured with a Dodo product ID. "
                         "Please contact support."
                     )
                 },
@@ -775,10 +802,10 @@ class PaymentViewSet(viewsets.ViewSet):
         invoice = Invoice.objects.create(
             user=request.user,
             package_plan=plan,
-            amount=plan.price,
+            amount=price.price,
             tax=0,
-            total=plan.price,
-            currency=plan.currency,
+            total=price.price,
+            currency=price.currency,
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
             billing_address=billing_snapshot,
@@ -824,7 +851,7 @@ class PaymentViewSet(viewsets.ViewSet):
             session_params = {
                 "product_cart": [
                     {
-                        "product_id": plan.dodo_product_id,
+                        "product_id": price.dodo_product_id,
                         "quantity": 1,
                     }
                 ],
@@ -840,8 +867,9 @@ class PaymentViewSet(viewsets.ViewSet):
                     "user_id": str(request.user.id),
                     "user_email": request.user.email,
                     "package_plan_id": str(plan.id),
-                    "package_plan_price": str(plan.price),
-                    "package_plan_currency": plan.currency.code,
+                    "package_plan_price_id": str(price.id),
+                    "package_plan_price": str(price.price),
+                    "package_plan_currency": price.currency.code,
                     "plan_name": self._build_plan_name(plan),
                     "duration_days": str(plan.duration.days if plan.duration else 0),
                     "auto_renew": "true" if auto_renew else "false",
@@ -967,8 +995,8 @@ class PaymentViewSet(viewsets.ViewSet):
         logger.info(f"✅ Checkout session created for invoice {invoice.invoice_number}")
         logger.info(f"   Session ID: {session_id}")
         logger.info(f"   Checkout URL: {checkout_url}")
-        logger.info(f"   Amount: {plan.price} {plan.currency}")
-        logger.info(f"   Product ID: {plan.dodo_product_id}")
+        logger.info(f"   Amount: {price.price} {price.currency.code}")
+        logger.info(f"   Product ID: {price.dodo_product_id}")
         logger.info(f"   Auto-Renew: {auto_renew}")
 
         return Response(
@@ -979,8 +1007,8 @@ class PaymentViewSet(viewsets.ViewSet):
                     "session_id": session_id,
                     "invoice_number": invoice.invoice_number,
                     "invoice_id": str(invoice.id),
-                    "amount": str(plan.price),
-                    "currency": plan.currency.code if plan.currency else "USD",
+                    "amount": str(price.price),
+                    "currency": price.currency.code,
                     "plan_name": self._build_plan_name(plan),
                     "auto_renew": auto_renew,
                 },
