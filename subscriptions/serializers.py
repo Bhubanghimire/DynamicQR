@@ -65,7 +65,15 @@ class CheckoutSessionCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class CurrencySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Currency
+        fields = ("id", "code", "name", "symbol")
+
+
 class PackagePlanPriceSerializer(serializers.ModelSerializer):
+    currency = CurrencySerializer(read_only=True)
+
     class Meta:
         model = PackagePlanPrice
         fields = ("id", "currency", "price", "is_default", "dodo_product_id", "is_active")
@@ -489,18 +497,6 @@ class SubscriptionUpdateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'auto_renew': {'required': True},
         }
-
-
-class CurrencySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Currency
-        fields = (
-            "id",
-            "code",
-            "name",
-            "symbol",
-        )
-
 
 
 class PaymentProviderSerializer(serializers.ModelSerializer):
