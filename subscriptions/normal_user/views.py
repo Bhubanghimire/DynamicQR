@@ -114,11 +114,12 @@ class DurationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return Duration.objects.all().order_by("days", "name")
 
 
-class PackageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+class PackageViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     schema = PackageSchema()
     serializer_class = PackageSerializer
     permission_classes_by_action = {
         "list": [AllowAny],
+        "retrieve": [AllowAny],
     }
     pagination_class = CustomPagination
 
