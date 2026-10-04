@@ -802,11 +802,12 @@ class PaymentProvider(SoftDeletable):
     code = models.CharField(
         max_length=30,
         unique=True,
-    )
+    ) #esewa, dodo
 
     name = models.CharField(
         max_length=100,
     )
+    logo = models.ImageField(upload_to="payment_providers/logo")
 
     supported_currencies = models.ManyToManyField(
         Currency,
