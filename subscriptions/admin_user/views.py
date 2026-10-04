@@ -67,6 +67,11 @@ class PackageViewSet(viewsets.ModelViewSet):
                 enum=["active", "inactive"],
                 example="active",
             ),
+            admin_query_parameter(
+                "duration",
+                "Filter packages by package plan duration UUID.",
+                value_format="uuid",
+            ),
         ],
     }
 
@@ -84,6 +89,10 @@ class PackageViewSet(viewsets.ModelViewSet):
             status_value = status_param.strip().lower()
             if status_value in {"active", "inactive"}:
                 queryset = queryset.filter(is_active=status_value == "active")
+
+        duration = self.request.query_params.get("duration")
+        if duration:
+            queryset = queryset.filter(packageplan__duration_id=duration).distinct()
 
         return queryset
 
