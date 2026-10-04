@@ -20,6 +20,7 @@ from subscriptions.serializers import (
     InvoiceSerializer,
     DurationSerializer,
     PackageSerializer,
+    PackagePlanSerializer,
     PaymentMethodSerializer,
     SubscriptionUsageSerializer,
     SubscriptionUsageSummarySerializer, CurrencySerializer, PaymentProviderSerializer,
@@ -150,6 +151,27 @@ class PackageViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if duration:
             queryset = queryset.filter(packageplan__is_active=True, packageplan__duration_id=duration).distinct()
         return queryset
+
+
+class PackagePlanViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = PackagePlanSerializer
+    permission_classes_by_action = {
+        "retrieve": [AllowAny],
+    }
+
+    def get_permissions(self):
+        try:
+            return [permission() for permission in self.permission_classes_by_action[self.action]]
+        except KeyError:
+            return [AllowAny()]
+
+    def get_queryset(self):
+        return (
+            PackagePlan.objects
+            .select_related("package", "duration")
+            .prefetch_related("prices__currency")
+            .filter(is_active=True, package__is_active=True)
+        )
 
 
 class InvoiceSchema(PaginatedAutoSchema):

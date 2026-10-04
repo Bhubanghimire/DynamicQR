@@ -72,7 +72,17 @@ class PackagePlanPriceSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
 
+class PackageSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Package
+        fields = (
+            "id", "title", "description", "is_free", "is_active",
+            "is_featured", "display_order", "metadata",
+        )
+
+
 class PackagePlanSerializer(serializers.ModelSerializer):
+    package = PackageSummarySerializer(read_only=True)
     duration = DurationSerializer(read_only=True)
     prices = PackagePlanPriceSerializer(many=True, read_only=True)
 
@@ -80,6 +90,7 @@ class PackagePlanSerializer(serializers.ModelSerializer):
         model = PackagePlan
         fields = (
             "id",
+            "package",
             "duration",
             "prices",
             "max_qrs",
@@ -103,6 +114,7 @@ class AdminPackagePlanPriceSerializer(serializers.ModelSerializer):
 
 class AdminPackagePlanSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
+    package = PackageSummarySerializer(read_only=True)
     duration = DurationSerializer(read_only=True)
     duration_id = serializers.PrimaryKeyRelatedField(
         queryset=Duration.objects.all(),
@@ -115,6 +127,7 @@ class AdminPackagePlanSerializer(serializers.ModelSerializer):
         model = PackagePlan
         fields = (
             "id",
+            "package",
             "duration",
             "duration_id",
             "prices",
