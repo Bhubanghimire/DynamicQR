@@ -512,62 +512,70 @@ class Subscription(SoftDeletable):
 
     @classmethod
     def get_or_create_default_subscription(cls, user):
-        active_subscription = cls.get_active_subscription_for_user(user)
-        if active_subscription:
-            return active_subscription
-
-        free_plan = PackagePlan.get_default_free_plan()
-        if not free_plan:
-            return None
-
-        now = timezone.now()
-        duration_days = free_plan.duration.days if free_plan.duration and free_plan.duration.days else None
-        expires_at = now + timezone.timedelta(days=duration_days or 36500)
-
-        subscription = (
-            cls.objects.filter(user=user, package_plan=free_plan)
-            .select_related("package_plan", "package_plan__package", "package_plan__duration")
-            .order_by("-expires_at", "-created_at")
+        free_plan = (
+            PackagePlan.objects
+            .filter(
+                package__is_free=True,
+                package__is_active=True,
+                is_active=True,
+            )
+            .prefetch_related("prices")
             .first()
         )
 
-        if subscription:
-            if subscription.expires_at and subscription.expires_at < now:
-                subscription.started_at = now
-            subscription.status = cls.Status.ACTIVE
-            subscription.expires_at = expires_at
-            subscription.price = Decimal("0.00")
-            subscription.currency = free_plan.currency
-            subscription.qr_limit = free_plan.max_qrs
-            subscription.scan_limit = free_plan.max_scans
-            subscription.scan_limit_remaining = free_plan.max_scans
-            subscription.team_member_limit = free_plan.max_team_members
-            subscription.bulk_upload_limit = free_plan.max_bulk_upload
-            subscription.domain_add_limit = free_plan.max_domain_add
-            subscription.features = free_plan.features or {}
-            subscription.auto_renew = False
-            subscription.save()
-            return subscription
+        if not free_plan:
+            return None
 
-        return cls.objects.create(
+        free_price = (
+            free_plan.prices
+            .filter(
+                is_active=True,
+                is_default=True,
+            )
+            .select_related("currency")
+            .first()
+        )
+
+        if not free_price:
+            # Fallback in case the free plan does not have a default price.
+            free_price = (
+                free_plan.prices
+                .filter(is_active=True)
+                .select_related("currency")
+                .first()
+            )
+
+        if not free_price:
+            return None
+
+        subscription, created = cls.objects.get_or_create(
             user=user,
             package_plan=free_plan,
-            payment_method=None,
-            price=Decimal("0.00"),
-            currency=free_plan.currency,
-            qr_limit=free_plan.max_qrs,
-            scan_limit=free_plan.max_scans,
-            scan_limit_remaining=free_plan.max_scans,
-            team_member_limit=free_plan.max_team_members,
-            bulk_upload_limit=free_plan.max_bulk_upload,
-            domain_add_limit=free_plan.max_domain_add,
-            features=free_plan.features or {},
-            started_at=now,
-            expires_at=expires_at,
-            status=cls.Status.ACTIVE,
-            auto_renew=False,
-            dodo_subscription_id=None,
+            defaults={
+                "price": free_price.price,
+                "currency": free_price.currency,
+                "billing_duration_days": free_plan.duration.days,
+                "status": cls.Status.ACTIVE,
+                "started_at": timezone.now(),
+                "expires_at": timezone.now() + timedelta(days=free_plan.duration.days),
+                "auto_renew": False,
+            },
         )
+
+        if not created:
+            subscription.price = free_price.price
+            subscription.currency = free_price.currency
+            subscription.billing_duration_days = free_plan.duration.days
+            subscription.save(
+                update_fields=[
+                    "price",
+                    "currency",
+                    "billing_duration_days",
+                    "updated_at",
+                ]
+            )
+
+        return subscription
 
     @classmethod
     def get_usage_subscription_for_user(cls, user):
