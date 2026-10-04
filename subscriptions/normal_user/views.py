@@ -123,6 +123,14 @@ class PackageViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     }
     pagination_class = CustomPagination
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "data": serializer.data,
+            "message": "Package details fetched successfully.",
+        })
+
     def get_permissions(self):
         try:
             return [permission() for permission in self.permission_classes_by_action[self.action]]
@@ -173,6 +181,14 @@ class PackagePlanViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
             .prefetch_related("prices__currency")
             .filter(is_active=True, package__is_active=True)
         )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response({
+            "data": serializer.data,
+            "message": "Package plan details fetched successfully.",
+        })
 
 
 class InvoiceSchema(PaginatedAutoSchema):
