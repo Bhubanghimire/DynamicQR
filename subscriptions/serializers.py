@@ -497,6 +497,7 @@ class PaymentProviderSerializer(serializers.ModelSerializer):
             "id",
             "code",
             "name",
+            "logo",
             "is_active",
             "display_order",
         )
