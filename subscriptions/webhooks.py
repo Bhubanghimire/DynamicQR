@@ -338,11 +338,18 @@ def _find_existing_invoice_for_subscription_renewal(
         if invoice:
             return invoice
 
-    invoice = (
-        Invoice.objects.filter(
-            user=subscription.user,
-            package_plan=subscription.package_plan,
+    invoice_queryset = Invoice.objects.filter(
+        user=subscription.user,
+        package_plan=subscription.package_plan,
+    )
+    selected_price_id = metadata.get("package_plan_price_id")
+    if selected_price_id:
+        invoice_queryset = invoice_queryset.filter(
+            metadata__package_plan_price_id=selected_price_id,
         )
+
+    invoice = (
+        invoice_queryset
         .exclude(status=Invoice.Status.CANCELLED)
         .order_by("-issued_at", "-created_at")
         .first()
