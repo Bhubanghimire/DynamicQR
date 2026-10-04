@@ -1,4 +1,4 @@
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
@@ -6,7 +6,12 @@ from rest_framework.response import Response
 from django.db.models import Count, Q
 from django.db import transaction
 from subscriptions.models import Duration, Package, PackagePlan, Invoice, SubscriptionChangeLog
-from subscriptions.serializers import AdminDurationSerializer, AdminPackageSerializer, AdminInvoiceSerializer
+from subscriptions.serializers import (
+    AdminDurationSerializer,
+    AdminPackagePlanSerializer,
+    AdminPackageSerializer,
+    AdminInvoiceSerializer,
+)
 from accounts.views import AdminAutoSchema, admin_query_parameter
 
 
@@ -123,6 +128,18 @@ class PackageViewSet(viewsets.ModelViewSet):
             for plan in instance.packageplan_set.all():
                 plan.delete()
             instance.delete()
+
+
+class PackagePlanViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    queryset = (
+        PackagePlan.objects
+        .select_related("package", "duration")
+        .prefetch_related("prices__currency")
+        .all()
+    )
+    serializer_class = AdminPackagePlanSerializer
+    permission_classes = [IsAdminUser]
+    schema = AdminAutoSchema()
 
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Invoice.objects.select_related(
