@@ -11,6 +11,7 @@ from .models import (
     Payment,
     PackageHistory,
     SubscriptionChangeLog, Currency, PaymentProvider,
+    PackagePlanPrice,
 )
 
 
@@ -117,13 +118,26 @@ class DurationAdmin(admin.ModelAdmin):
 # PACKAGE PLAN
 # ============================================================
 
+class PackagePlanPriceInline(admin.TabularInline):
+    model = PackagePlanPrice
+    extra = 1
+    fields = (
+        "currency",
+        "price",
+        "is_default",
+        "dodo_product_id",
+        "is_active",
+    )
+    readonly_fields = ("dodo_product_id",)
+
 @admin.register(PackagePlan)
 class PackagePlanAdmin(admin.ModelAdmin):
+    inlines = (PackagePlanPriceInline,)
     list_display = (
         "package",
         "duration",
-        "price",
-        "currency",
+        # "price",
+        # "currency",
         "max_qrs",
         "max_scans",
         "max_team_members",
@@ -134,7 +148,7 @@ class PackagePlanAdmin(admin.ModelAdmin):
 
     list_filter = (
         "is_active",
-        "currency",
+        # "currency",
         "duration",
         "package",
     )
@@ -155,17 +169,7 @@ class PackagePlanAdmin(admin.ModelAdmin):
                 "fields": (
                     "package",
                     "duration",
-                    "dodo_product_id",
                     "is_active",
-                )
-            },
-        ),
-        (
-            "Pricing",
-            {
-                "fields": (
-                    "price",
-                    "currency",
                 )
             },
         ),
@@ -854,3 +858,8 @@ class PaymentProviderAdmin(admin.ModelAdmin):
     search_fields = ("name", "code")
     ordering = ("display_order", "name")
     filter_horizontal = ("supported_currencies",)
+
+
+@admin.register(PackagePlanPrice)
+class PaymentPriceAdmin(admin.ModelAdmin):
+    list_display = ["id"]

@@ -90,12 +90,12 @@ class Duration(SoftDeletable):
 class PackagePlan(SoftDeletable):
     package = models.ForeignKey(Package, on_delete=models.PROTECT, null=True)
     duration = models.ForeignKey(Duration, on_delete=models.RESTRICT, null=True)
-    price =models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.ForeignKey(
-        Currency,
-        on_delete=models.PROTECT,
-        related_name="package_plans",
-    )
+    # price =models.DecimalField(max_digits=10, decimal_places=2)
+    # currency = models.ForeignKey(
+    #     Currency,
+    #     on_delete=models.PROTECT,
+    #     related_name="package_plans",
+    # )
     # Limits (directly on plan for flexibility)
     max_qrs = models.PositiveIntegerField(
         null=True,
@@ -127,12 +127,12 @@ class PackagePlan(SoftDeletable):
         blank=True,
         help_text="Additional features like: {'analytics': True, 'branding': True}"
     )
-    dodo_product_id = models.CharField(
-        max_length=255,
-        unique=True,
-        null=True,
-        blank=True,
-    )
+    # dodo_product_id = models.CharField(
+    #     max_length=255,
+    #     unique=True,
+    #     null=True,
+    #     blank=True,
+    # )
 
     is_active = models.BooleanField(default=True)
 
@@ -159,6 +159,42 @@ class PackagePlan(SoftDeletable):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
+
+class PackagePlanPrice(SoftDeletable):
+    package_plan = models.ForeignKey(
+        PackagePlan,
+        on_delete=models.PROTECT,
+        related_name="prices",
+    )
+
+    currency = models.ForeignKey(
+        Currency,
+        on_delete=models.PROTECT,
+        related_name="package_plan_prices",
+    )
+
+    price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+    )
+    is_default = models.BooleanField(default=True)
+
+    dodo_product_id = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["package_plan", "currency"],
+                name="unique_package_plan_currency",
+            )
+        ]
 
 class PaymentMethod(SoftDeletable):
     """

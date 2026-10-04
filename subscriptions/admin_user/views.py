@@ -46,7 +46,11 @@ class DurationViewSet(viewsets.ModelViewSet):
 
 
 class PackageViewSet(viewsets.ModelViewSet):
-    queryset = Package.objects.prefetch_related("packageplan_set", "packageplan_set__duration").all()
+    queryset = Package.objects.prefetch_related(
+        "packageplan_set",
+        "packageplan_set__duration",
+        "packageplan_set__prices",
+    ).all()
     serializer_class = AdminPackageSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()

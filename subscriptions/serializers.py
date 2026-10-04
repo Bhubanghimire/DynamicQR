@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
-    PaymentProvider
+    PaymentProvider, PackagePlanPrice
 
 
 class DurationSerializer(serializers.ModelSerializer):
@@ -56,16 +56,23 @@ class CheckoutSessionCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class PackagePlanPriceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PackagePlanPrice
+        fields = ("id", "currency", "price", "is_default", "dodo_product_id", "is_active")
+        read_only_fields = ("id",)
+
+
 class PackagePlanSerializer(serializers.ModelSerializer):
     duration = DurationSerializer(read_only=True)
+    prices = PackagePlanPriceSerializer(many=True, read_only=True)
 
     class Meta:
         model = PackagePlan
         fields = (
             "id",
             "duration",
-            "price",
-            "currency",
+            "prices",
             "max_qrs",
             "max_scans",
             "max_team_members",
@@ -74,6 +81,15 @@ class PackagePlanSerializer(serializers.ModelSerializer):
             "features",
             "is_active",
         )
+
+
+class AdminPackagePlanPriceSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(required=False)
+
+    class Meta:
+        model = PackagePlanPrice
+        fields = ("id", "currency", "price", "is_default", "dodo_product_id", "is_active")
+        read_only_fields = ()
 
 
 class AdminPackagePlanSerializer(serializers.ModelSerializer):
@@ -84,6 +100,7 @@ class AdminPackagePlanSerializer(serializers.ModelSerializer):
         source="duration",
         write_only=True,
     )
+    prices = AdminPackagePlanPriceSerializer(many=True, required=False)
 
     class Meta:
         model = PackagePlan
@@ -91,18 +108,28 @@ class AdminPackagePlanSerializer(serializers.ModelSerializer):
             "id",
             "duration",
             "duration_id",
-            "price",
-            "currency",
+            "prices",
             "max_qrs",
             "max_scans",
             "max_team_members",
             "max_bulk_upload",
             "max_domain_add",
             "features",
-            "dodo_product_id",
+            # "dodo_product_id",
             "is_active",
         )
         read_only_fields = ("id",)
+
+    def validate(self, attrs):
+        prices = attrs.get("prices")
+        if prices is not None:
+            currencies = [price["currency"].pk for price in prices]
+            if len(currencies) != len(set(currencies)):
+                raise serializers.ValidationError({"prices": "Each currency can appear only once per plan."})
+            defaults = sum(1 for price in prices if price.get("is_default", True))
+            if prices and defaults != 1:
+                raise serializers.ValidationError({"prices": "Exactly one price must be the default."})
+        return attrs
 
 
 class AdminPackageSerializer(serializers.ModelSerializer):
@@ -133,7 +160,15 @@ class AdminPackageSerializer(serializers.ModelSerializer):
         plans_data = validated_data.pop("packageplan_set", [])
         package = Package.objects.create(**validated_data)
         for plan_data in plans_data:
-            PackagePlan.objects.create(package=package, **plan_data)
+            # A package create always creates new plans. Never reuse a plan
+            # UUID supplied by the client, otherwise SQLite/PostgreSQL can
+            # raise UNIQUE constraint failed on subscriptions_packageplan.id.
+            plan_data.pop("id", None)
+            prices_data = plan_data.pop("prices", [])
+            plan = PackagePlan.objects.create(package=package, **plan_data)
+            for price in prices_data:
+                price.pop("id", None)
+                PackagePlanPrice.objects.create(package_plan=plan, **price)
         return package
 
     def update(self, instance, validated_data):
@@ -146,6 +181,7 @@ class AdminPackageSerializer(serializers.ModelSerializer):
             existing_plans = {plan.id: plan for plan in instance.packageplan_set.all()}
             for plan_data in plans_data:
                 plan_id = plan_data.pop("id", None)
+                prices_data = plan_data.pop("prices", None)
                 if plan_id:
                     if plan_id not in existing_plans:
                         raise serializers.ValidationError({
@@ -155,8 +191,36 @@ class AdminPackageSerializer(serializers.ModelSerializer):
                     for attr, value in plan_data.items():
                         setattr(plan, attr, value)
                     plan.save()
+                    if prices_data is not None:
+                        existing_prices = {price.id: price for price in plan.prices.all()}
+                        submitted_ids = set()
+                        for price in prices_data:
+                            price_id = price.pop("id", None)
+                            if price_id:
+                                if price_id not in existing_prices:
+                                    raise serializers.ValidationError({
+                                        "plans": f"Price id {price_id} does not belong to this plan."
+                                    })
+                                existing_price = existing_prices[price_id]
+                                for attr, value in price.items():
+                                    setattr(existing_price, attr, value)
+                                existing_price.save()
+                                submitted_ids.add(price_id)
+                            else:
+                                created_price = PackagePlanPrice.objects.create(
+                                    package_plan=plan,
+                                    **price,
+                                )
+                                submitted_ids.add(created_price.id)
+
+                        for price_id, existing_price in existing_prices.items():
+                            if price_id not in submitted_ids:
+                                existing_price.hard_delete()
                 else:
-                    PackagePlan.objects.create(package=instance, **plan_data)
+                    plan = PackagePlan.objects.create(package=instance, **plan_data)
+                    for price in prices_data or []:
+                        price.pop("id", None)
+                        PackagePlanPrice.objects.create(package_plan=plan, **price)
 
         return instance
 
@@ -206,8 +270,8 @@ class InvoicePackagePlanSerializer(serializers.ModelSerializer):
             "package_id",
             "package_title",
             "duration",
-            "price",
-            "currency",
+            # "price",
+            # "currency",
             "max_qrs",
             "max_scans",
             "max_team_members",
