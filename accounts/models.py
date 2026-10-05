@@ -228,7 +228,7 @@ class BillingAddress(SoftDeletable):
     state_province = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=30, blank=True)
 
-    country = models.CharField(max_length=2)
+    country = models.CharField(max_length=200)
 
     phone = models.CharField(max_length=30, blank=True)
 
