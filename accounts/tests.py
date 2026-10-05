@@ -115,3 +115,61 @@ class AdminSwaggerQueryParameterTests(SimpleTestCase):
         self.assertIn("search", categories)
         self.assertIn("search", choices)
         self.assertNotIn("search", category_detail)
+
+
+class ChangeEmailTests(TestCase):
+    url = "/api/v1.1/user/accounts/auth/change-email/"
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+        from accounts.middleware import generate_access_token
+        from accounts.models import OTP
+
+        self.user = User.objects.create_user(
+            email="old@example.com", password="password123", full_name="Test User"
+        )
+        self.otp = OTP.objects.create(email="new@example.com", otp="123456")
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {generate_access_token(self.user)}")
+
+    def test_requires_authentication(self):
+        from rest_framework.test import APIClient
+
+        response = APIClient().post(self.url, {"email": "new@example.com", "otp": "123456"}, format="json")
+        self.assertEqual(response.status_code, 401)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "old@example.com")
+
+    def test_changes_email_and_consumes_otp(self):
+        from accounts.models import OTP
+
+        response = self.client.post(self.url, {"email": "new@example.com", "otp": "123456"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["email"], "new@example.com")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "new@example.com")
+        self.assertFalse(OTP.objects.filter(pk=self.otp.pk).exists())
+
+    def test_rejects_wrong_or_expired_otp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from accounts.models import OTP
+
+        wrong = self.client.post(self.url, {"email": "new@example.com", "otp": "999999"}, format="json")
+        self.assertEqual(wrong.status_code, 400)
+        OTP.objects.filter(pk=self.otp.pk).update(created_at=timezone.now() - timedelta(minutes=11))
+        expired = self.client.post(self.url, {"email": "new@example.com", "otp": "123456"}, format="json")
+        self.assertEqual(expired.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "old@example.com")
+
+    def test_rejects_email_already_in_use(self):
+        User.objects.create_user(email="new@example.com", password="password123", full_name="Other User")
+        response = self.client.post(self.url, {"email": "new@example.com", "otp": "123456"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "old@example.com")
+
+    def test_rejects_current_email(self):
+        response = self.client.post(self.url, {"email": "OLD@example.com", "otp": "123456"}, format="json")
+        self.assertEqual(response.status_code, 400)

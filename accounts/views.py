@@ -12,7 +12,7 @@ from django.utils.html import strip_tags
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.apps import apps
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
@@ -29,7 +29,7 @@ from accounts.middleware import create_user_session, generate_access_token, gene
 from accounts.authentication import JWTAuthentication
 from accounts.models import BillingAddress, FAQ, NotificationPreference, OTP, User, Workspace, GoogleOAuthExchangeCode, UserSession
 from accounts.serializers import LoginSerializer, RefreshSerializer, SendOtpSerializer, RegisterSerializer, \
-    ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, TokenResponseSerializer, \
+    ForgetPasswordSerializer, OtpVerifySerializer, ChangePasswordSerializer, ChangeEmailSerializer, TokenResponseSerializer, \
     MessageResponseSerializer, ChangePasswordResponseSerializer, ProfileDetailSerializer, ProfileUpdateSerializer, \
     ProfileImageUpdateSerializer, GoogleOAuthExchangeSerializer, ContactUsSubmitSerializer, FAQListSerializer, \
     NotificationPreferenceSerializer, UserSessionSerializer, WorkspaceSerializer, BillingAddressSerializer
@@ -161,6 +161,8 @@ class AccountsAuthSchema(AdminAutoSchema):
             return OtpVerifySerializer()
         if action == "change_password":
             return ChangePasswordSerializer()
+        if action == "change_email":
+            return ChangeEmailSerializer()
         return super().get_request_serializer(path, method)
 
     def get_request_body(self, path, method):
@@ -175,7 +177,7 @@ class AccountsAuthSchema(AdminAutoSchema):
             return TokenResponseSerializer()
         if action in {"otp_send", "otp_verify", "forget_password"}:
             return MessageResponseSerializer()
-        if action == "change_password":
+        if action in {"change_password", "change_email"}:
             return ChangePasswordResponseSerializer()
         return super().get_response_serializer(path, method)
 
@@ -208,6 +210,7 @@ class AuthViewSet(viewsets.ViewSet):
         'forget_password': [AllowAny],
         'otp_verify': [AllowAny],
         'change_password': [IsAuthenticated],
+        'change_email': [IsAuthenticated],
         'logout': [AllowAny],
     }
 
@@ -439,6 +442,36 @@ class AuthViewSet(viewsets.ViewSet):
         if check_otp.exists():
             return JsonResponse({'message': 'OTP  matched'}, status=status.HTTP_200_OK)
         return Response({'message': 'OTP not matched'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['POST'], url_path='change-email')
+    def change_email(self, request):
+        serializer = ChangeEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        otp_code = serializer.validated_data['otp']
+
+        try:
+            with transaction.atomic():
+                user = User.objects.select_for_update().get(pk=request.user.pk)
+                if user.email.lower() == email.lower():
+                    return Response({'message': 'This is already your email address.'}, status=HTTP_400_BAD_REQUEST)
+                if User._base_manager.filter(email__iexact=email).exclude(pk=user.pk).exists():
+                    return Response({'message': 'This email address is already in use.'}, status=HTTP_400_BAD_REQUEST)
+
+                otp = OTP.objects.select_for_update().filter(email=email, otp=otp_code).first()
+                if otp is None or not otp.is_valid():
+                    return Response({'message': 'Invalid or expired OTP.'}, status=HTTP_400_BAD_REQUEST)
+
+                user.email = email
+                user.save(update_fields=['email'])
+                otp.delete()
+        except IntegrityError:
+            return Response({'message': 'This email address is already in use.'}, status=HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {'data': {'email': user.email}, 'message': 'Email changed successfully.'},
+            status=HTTP_200_OK,
+        )
 
     @action(detail=False, methods=['POST'], url_path='password-change')
     def change_password(self, request, *args, **kwargs):
