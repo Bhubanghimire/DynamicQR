@@ -60,7 +60,7 @@ def reconcile_esewa_invoice(invoice, callback=None):
                 raise EsewaError('Invoice transaction mismatch')
             if locked.status == Invoice.Status.PAID:
                 return locked
-            if locked.currency != 'NPR' or locked.total != invoice.total:
+            if locked.currency.code.upper() != 'NPR' or locked.total != invoice.total:
                 raise EsewaError('Invoice amount mismatch')
             current['esewa_transaction_code'] = str(code)
             current['esewa_payment_status'] = 'success'
