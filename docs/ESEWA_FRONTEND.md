@@ -12,7 +12,7 @@ Set these server-side environment variables (never expose the secret key to the 
 - `ESEWA_CALLBACK_BASE_URL`: public backend origin, for example `https://api.example.com`. eSewa must be able to return the browser to this origin.
 - `FRONTEND_URL`: existing frontend origin, for example `https://app.example.com`.
 
-The package plan must have `currency: "NPR"` and a positive price. The backend takes the amount from the stored plan, not from a frontend request. For Dodo, ensure the plan's synced product is priced in NPR before offering both providers for that plan.
+The selected package plan price must have `currency: "NPR"` and a positive price. The backend takes the amount from the stored package plan price, not from a frontend request. For Dodo, ensure the plan's synced product is priced in NPR before offering both providers for that plan.
 
 ## 1. Start checkout
 
@@ -23,7 +23,7 @@ POST /api/v1.1/user/subscriptions/payments/esewa/initiate/
 Content-Type: application/json
 Authorization: Bearer <access-token>
 
-{"package_plan_id":"<plan-uuid>"}
+{"package_plan_id":"<plan-uuid>","package_plan_price_id":"<package-plan-price-uuid>"}
 ```
 
 A successful response (`201`) looks like:

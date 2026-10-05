@@ -669,14 +669,23 @@ class PaymentViewSet(viewsets.ViewSet):
             plan_id = UUID(str(request.data.get("package_plan_id", "")))
         except (ValueError, TypeError):
             return Response({"package_plan_id": ["A valid UUID is required."]}, status=400)
+        try:
+            price_id = UUID(str(request.data.get("package_plan_price_id", "")))
+        except (ValueError, TypeError):
+            return Response({"package_plan_price_id": ["A valid UUID is required."]}, status=400)
         plan = PackagePlan.objects.select_related("package", "duration").filter(
             id=plan_id, is_active=True, package__is_active=True,
         ).first()
         if not plan:
             return Response({"detail": "Package plan not found or inactive."}, status=404)
-        if plan.package.is_free or plan.price <= 0:
+        price = PackagePlanPrice.objects.select_related("currency").filter(
+            id=price_id, package_plan=plan, is_active=True,
+        ).first()
+        if not price:
+            return Response({"detail": "Package plan price not found or inactive."}, status=404)
+        if plan.package.is_free or price.price <= 0:
             return Response({"detail": "This package does not require payment."}, status=400)
-        if plan.currency.code.upper() != "NPR":
+        if price.currency.code.upper() != "NPR":
             return Response({"detail": "eSewa checkout requires an NPR package price."}, status=400)
         if str(request.data.get("auto_renew", "false")).lower() in {"true", "1", "yes"}:
             return Response({"detail": "eSewa checkout does not support auto-renew."}, status=400)
@@ -693,8 +702,8 @@ class PaymentViewSet(viewsets.ViewSet):
             return Response({"detail": "eSewa is not configured."}, status=503)
 
         invoice = Invoice.objects.create(
-            user=request.user, package_plan=plan, amount=plan.price, tax=0,
-            total=plan.price, currency=plan.currency,
+            user=request.user, package_plan=plan, amount=price.price, tax=0,
+            total=price.price, currency=price.currency,
             due_date=timezone.now() + timezone.timedelta(hours=24),
             status=Invoice.Status.PENDING,
             metadata={
