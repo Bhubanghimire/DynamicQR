@@ -56,6 +56,24 @@ class PackageListDurationFilterTests(TestCase):
         self.assertEqual(len(response.data["data"]), 1)
         self.assertEqual(response.data["data"][0]["title"], self.monthly_package.title)
 
+    def test_admin_package_detail_includes_duration_object(self):
+        admin = User.objects.create_user(
+            email="package-admin@example.com",
+            password="password123",
+            is_staff=True,
+        )
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.get(
+            f"/api/v1.1/admin/subscriptions/packages/{self.monthly_package.id}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        plan = response.data["plans"][0]
+        self.assertEqual(plan["duration"]["id"], str(self.monthly.id))
+        self.assertEqual(plan["duration"]["name"], self.monthly.name)
+        self.assertEqual(plan["duration"]["days"], self.monthly.days)
+
 
 class NormalUserPackagePriceTests(TestCase):
     def setUp(self):

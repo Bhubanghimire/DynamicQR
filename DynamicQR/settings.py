@@ -323,6 +323,8 @@ ESEWA_SECRET_KEY = config("ESEWA_SECRET_KEY", default="8gBm/:&EnhH.1/q")
 ESEWA_TEST_MODE = config("ESEWA_TEST_MODE", default=DEBUG, cast=bool)
 ESEWA_CALLBACK_BASE_URL = config("ESEWA_CALLBACK_BASE_URL", default="https://api.qrpac.com")
 
+
+
 DODO_PAYMENTS_API_KEY = config("DODO_API_KEY", default=None)
 # print(DODO_PAYMENTS_API_KEY)
 # DODO_SUBSCRIPTION_PRODUCT_ID = config("DODO_SUBSCRIPTION_PRODUCT_ID", default="pdt_0NmevMBs1Ny7Ol2lzyq3H")
