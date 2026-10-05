@@ -57,6 +57,81 @@ class PackageListDurationFilterTests(TestCase):
         self.assertEqual(response.data["data"][0]["title"], self.monthly_package.title)
 
 
+class NormalUserPackagePriceTests(TestCase):
+    def setUp(self):
+        from subscriptions.models import Currency, PackagePlanPrice
+
+        self.client = APIClient()
+        self.package = Package.objects.create(
+            title="Pro", description="Pro package", is_active=True,
+        )
+        self.plan = PackagePlan.objects.create(package=self.package, is_active=True)
+        usd = Currency.objects.create(code="USD", name="US Dollar", is_active=True)
+        npr = Currency.objects.create(code="NPR", name="Nepalese Rupee", is_active=True)
+        self.usd_price = PackagePlanPrice.objects.create(
+            package_plan=self.plan, currency=usd, price=Decimal("10.00"), is_active=True,
+        )
+        self.npr_price = PackagePlanPrice.objects.create(
+            package_plan=self.plan, currency=npr, price=Decimal("1300.00"), is_active=True,
+        )
+
+    def _country_response(self, country_code, path):
+        from types import SimpleNamespace
+
+        with patch("subscriptions.normal_user.pricing.GeoParser.get_reader") as reader:
+            reader.return_value.city.return_value = SimpleNamespace(
+                country=SimpleNamespace(iso_code=country_code)
+            )
+            return self.client.get(path, HTTP_X_FORWARDED_FOR="1.1.1.1")
+
+    def test_package_list_uses_local_currency_price_object(self):
+        response = self._country_response("NP", "/api/v1.1/user/subscriptions/packages/")
+
+        self.assertEqual(response.status_code, 200)
+        plan = response.data["data"][0]["plans"][0]
+        self.assertNotIn("prices", plan)
+        self.assertIsInstance(plan["price"], dict)
+        self.assertEqual(plan["price"]["id"], str(self.npr_price.id))
+        self.assertEqual(plan["price"]["currency"]["code"], "NPR")
+
+    def test_package_and_plan_detail_fall_back_to_usd(self):
+        paths = (
+            f"/api/v1.1/user/subscriptions/packages/{self.package.id}/",
+            f"/api/v1.1/user/subscriptions/package-plans/{self.plan.id}/",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                response = self._country_response("GB", path)
+                self.assertEqual(response.status_code, 200)
+                plan = response.data["data"]["plans"][0] if "/packages/" in path else response.data["data"]
+                self.assertEqual(plan["price"]["id"], str(self.usd_price.id))
+                self.assertNotIn("prices", plan)
+
+    def test_unresolved_ip_and_inactive_local_price_use_usd(self):
+        path = f"/api/v1.1/user/subscriptions/package-plans/{self.plan.id}/"
+        response = self.client.get(path, REMOTE_ADDR="127.0.0.1")
+        self.assertEqual(response.data["data"]["price"]["id"], str(self.usd_price.id))
+
+        self.npr_price.is_active = False
+        self.npr_price.save(update_fields=["is_active"])
+        response = self._country_response("NP", path)
+        self.assertEqual(response.data["data"]["price"]["id"], str(self.usd_price.id))
+
+    def test_admin_plan_detail_still_has_price_list(self):
+        admin = User.objects.create_superuser(
+            email="price-admin@example.com", password="password123", full_name="Price Admin",
+        )
+        self.client.force_authenticate(user=admin)
+        response = self.client.get(
+            f"/api/v1.1/admin/subscriptions/package-plans/{self.plan.id}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("prices", response.data)
+        self.assertIsInstance(response.data["prices"], list)
+        self.assertEqual(len(response.data["prices"]), 2)
+
+
 class SubscriptionUsageFallbackTests(TestCase):
     def setUp(self):
         self.client = APIClient()

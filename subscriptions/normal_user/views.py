@@ -146,7 +146,7 @@ class PackageViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         queryset = Package.objects.filter(is_active=True).prefetch_related(
             Prefetch(
                 "packageplan_set",
-                queryset=plan_queryset.select_related("duration").order_by(
+                queryset=plan_queryset.select_related("duration").prefetch_related("prices__currency").order_by(
                     "duration__days",
                     "duration__name",
                 ),
