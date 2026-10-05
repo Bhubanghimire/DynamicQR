@@ -51,6 +51,11 @@ class OtpVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
 
+class ChangeEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.RegexField(r"^\d{6}$", write_only=True)
+
+
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)

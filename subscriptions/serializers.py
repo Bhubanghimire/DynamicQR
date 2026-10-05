@@ -65,7 +65,15 @@ class CheckoutSessionCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class CurrencySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Currency
+        fields = ("id", "code", "name", "symbol")
+
+
 class PackagePlanPriceSerializer(serializers.ModelSerializer):
+    currency = CurrencySerializer(read_only=True)
+
     class Meta:
         model = PackagePlanPrice
         fields = ("id", "currency", "price", "is_default", "dodo_product_id", "is_active")
@@ -84,7 +92,15 @@ class PackageSummarySerializer(serializers.ModelSerializer):
 class PackagePlanSerializer(serializers.ModelSerializer):
     package = PackageSummarySerializer(read_only=True)
     duration = DurationSerializer(read_only=True)
-    prices = PackagePlanPriceSerializer(many=True, read_only=True)
+    price = serializers.SerializerMethodField()
+
+    def get_price(self, plan):
+        from subscriptions.normal_user.pricing import select_plan_price
+
+        selected = select_plan_price(plan, self.context.get("request"))
+        if selected is None:
+            return None
+        return PackagePlanPriceSerializer(selected, context=self.context).data
 
     class Meta:
         model = PackagePlan
@@ -92,7 +108,7 @@ class PackagePlanSerializer(serializers.ModelSerializer):
             "id",
             "package",
             "duration",
-            "prices",
+            "price",
             "max_qrs",
             "max_scans",
             "max_team_members",
@@ -489,18 +505,6 @@ class SubscriptionUpdateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'auto_renew': {'required': True},
         }
-
-
-class CurrencySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Currency
-        fields = (
-            "id",
-            "code",
-            "name",
-            "symbol",
-        )
-
 
 
 class PaymentProviderSerializer(serializers.ModelSerializer):
