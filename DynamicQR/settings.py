@@ -321,7 +321,10 @@ BASE_DOMAIN="qrpac.com"
 ESEWA_PRODUCT_CODE = config("ESEWA_PRODUCT_CODE", default="EPAYTEST")
 ESEWA_SECRET_KEY = config("ESEWA_SECRET_KEY", default="8gBm/:&EnhH.1/q")
 ESEWA_TEST_MODE = config("ESEWA_TEST_MODE", default=DEBUG, cast=bool)
-ESEWA_CALLBACK_BASE_URL = config("ESEWA_CALLBACK_BASE_URL", default="https://api.qrpac.com")
+ESEWA_CALLBACK_BASE_URL = config(
+    "ESEWA_CALLBACK_BASE_URL",
+    default="https://api.qrpac.com",
+)
 
 
 
