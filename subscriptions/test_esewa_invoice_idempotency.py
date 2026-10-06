@@ -10,7 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import BillingAddress, User
-from subscriptions.models import Currency, Duration, Invoice, Package, PackagePlan, PackagePlanPrice, Payment, PaymentProvider
+from subscriptions.models import Currency, Duration, Invoice, Package, PackagePlan, PackagePlanPrice, Payment, PaymentMethod, PaymentProvider
 from subscriptions.services.esewa_service import _signature
 
 
@@ -130,6 +130,10 @@ class EsewaInvoiceIdempotencyTests(TestCase):
     @patch("subscriptions.views.verify_status")
     def test_repeat_initiation_and_success_return_leave_one_paid_invoice(self, verify_status):
         PaymentProvider.objects.create(code="esewa", name="eSewa", logo="esewa.png")
+        saved_card = PaymentMethod.objects.create(
+            user=self.user, payment_type=PaymentMethod.PaymentType.CARD,
+            dodo_payment_method_id="pm_saved_card", is_default=True,
+        )
         first = self.initiate()
         self.initiate()
         Invoice.objects.filter(pk=first.data["invoice_id"]).update(billing_address={})
@@ -154,5 +158,14 @@ class EsewaInvoiceIdempotencyTests(TestCase):
         invoice = Invoice.objects.get(user=self.user)
         self.assertEqual(invoice.status, Invoice.Status.PAID)
         self.assertEqual(invoice.billing_address["address_line_1"], "123 Main Street")
+        self.assertEqual(invoice.payment_method.payment_type, PaymentMethod.PaymentType.ESEWA)
+        self.assertEqual(invoice.payment_method.dodo_payment_method_id, None)
+        self.assertEqual(PaymentMethod.objects.filter(user=self.user, payment_type="esewa").count(), 1)
+        self.assertIsNone(invoice.subscription.payment_method)
+        saved_card.refresh_from_db()
+        self.assertTrue(saved_card.is_default)
         self.assertEqual(Payment.objects.filter(invoice=invoice).count(), 1)
         self.assertEqual(Invoice.objects.filter(user=self.user).count(), 1)
+        detail = self.client.get(f"/api/v1.1/user/subscriptions/invoices/{invoice.id}/")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.data["payment_method"]["payment_type"], "esewa")

@@ -11,7 +11,7 @@ from django.db import transaction
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.views.decorators.http import require_GET
 
-from subscriptions.models import Invoice, Payment, PaymentProvider
+from subscriptions.models import Invoice, Payment, PaymentMethod, PaymentProvider
 from subscriptions.billing import billing_address_snapshot
 from subscriptions.services.esewa_service import EsewaError, decode_callback, verify_status
 
@@ -72,6 +72,13 @@ def reconcile_esewa_invoice(invoice, callback=None):
                 update_fields.append('billing_address')
             locked.save(update_fields=update_fields)
             locked.mark_as_paid()
+            payment_method, _ = PaymentMethod.objects.get_or_create(
+                user=locked.user,
+                payment_type=PaymentMethod.PaymentType.ESEWA,
+                defaults={'dodo_payment_method_id': None},
+            )
+            locked.payment_method = payment_method
+            locked.save(update_fields=['payment_method', 'updated_at'])
             if locked.subscription and not locked.subscription.auto_renew:
                 locked.subscription.next_billing_date = None
                 locked.subscription.save(update_fields=['next_billing_date', 'updated_at'])

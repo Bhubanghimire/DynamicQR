@@ -198,11 +198,12 @@ class PackagePlanPrice(SoftDeletable):
 
 class PaymentMethod(SoftDeletable):
     """
-    Saved payment methods for users (Dodo Payment)
+    Payment method used for an invoice; cards may also be saved for Dodo.
     """
 
     class PaymentType(models.TextChoices):
         CARD = "card", "Credit/Debit Card"
+        ESEWA = "esewa", "eSewa"
 
     user = models.ForeignKey(
         User,
@@ -227,6 +228,7 @@ class PaymentMethod(SoftDeletable):
         max_length=255,
         unique=True,
         blank=True,
+        null=True,
         help_text="Payment method ID from Dodo Payment"
     )
 
@@ -250,6 +252,13 @@ class PaymentMethod(SoftDeletable):
         ordering = ['-is_default', '-created_at']
         indexes = [
             models.Index(fields=['user', 'is_active']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'payment_type'],
+                condition=models.Q(payment_type='esewa', is_deleted=False),
+                name='unique_esewa_payment_method_per_user',
+            ),
         ]
 
     def __str__(self):
