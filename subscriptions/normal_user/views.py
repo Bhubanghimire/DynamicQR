@@ -1,5 +1,7 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.db.models import Q, Prefetch
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
@@ -701,17 +703,30 @@ class PaymentViewSet(viewsets.ViewSet):
         if not settings.ESEWA_PRODUCT_CODE or not settings.ESEWA_SECRET_KEY or not settings.ESEWA_CALLBACK_BASE_URL:
             return Response({"detail": "eSewa is not configured."}, status=503)
 
-        invoice = Invoice.objects.create(
-            user=request.user, package_plan=plan, amount=price.price, tax=0,
-            total=price.price, currency=price.currency,
-            due_date=timezone.now() + timezone.timedelta(hours=24),
-            status=Invoice.Status.PENDING,
-            metadata={
-                "payment_provider": "esewa", "auto_renew": False,
-                "esewa_transaction_uuid": str(uuid4()),
-                "esewa_payment_status": "pending",
-            },
-        )
+        # A repeated checkout request must return the same pending eSewa invoice.
+        # Lock the user row so concurrent requests cannot both create one.
+        with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            invoice = Invoice.objects.filter(
+                user=request.user, package_plan=plan, amount=price.price,
+                total=price.price, currency=price.currency,
+                status=Invoice.Status.PENDING,
+                due_date__gt=timezone.now(),
+                metadata__payment_provider="esewa",
+            ).order_by("-created_at").first()
+            if invoice is None:
+                invoice = Invoice.objects.create(
+                    user=request.user, package_plan=plan, amount=price.price, tax=0,
+                    total=price.price, currency=price.currency,
+                    due_date=timezone.now() + timezone.timedelta(hours=24),
+                    status=Invoice.Status.PENDING,
+                    metadata={
+                        "payment_provider": "esewa", "auto_renew": False,
+                        "package_plan_price_id": str(price.id),
+                        "esewa_transaction_uuid": str(uuid4()),
+                        "esewa_payment_status": "pending",
+                    },
+                )
         payment_url, fields = form_for_invoice(invoice)
         return Response({
             "payment_url": payment_url,
