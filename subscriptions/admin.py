@@ -365,7 +365,6 @@ class SubscriptionAdmin(admin.ModelAdmin):
                     "currency",
                     "qr_limit",
                     "scan_limit",
-                    "scan_limit_remaining",
                     "team_member_limit",
                     "bulk_upload_limit",
                     "domain_add_limit",
