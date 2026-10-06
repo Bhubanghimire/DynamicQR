@@ -1,7 +1,8 @@
 import uuid
 from decimal import Decimal
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from accounts.models import User
@@ -198,11 +199,12 @@ class PackagePlanPrice(SoftDeletable):
 
 class PaymentMethod(SoftDeletable):
     """
-    Saved payment methods for users (Dodo Payment)
+    Payment method used for an invoice; cards may also be saved for Dodo.
     """
 
     class PaymentType(models.TextChoices):
         CARD = "card", "Credit/Debit Card"
+        ESEWA = "esewa", "eSewa"
 
     user = models.ForeignKey(
         User,
@@ -227,6 +229,7 @@ class PaymentMethod(SoftDeletable):
         max_length=255,
         unique=True,
         blank=True,
+        null=True,
         help_text="Payment method ID from Dodo Payment"
     )
 
@@ -250,6 +253,13 @@ class PaymentMethod(SoftDeletable):
         ordering = ['-is_default', '-created_at']
         indexes = [
             models.Index(fields=['user', 'is_active']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'payment_type'],
+                condition=models.Q(payment_type='esewa', is_deleted=False),
+                name='unique_esewa_payment_method_per_user',
+            ),
         ]
 
     def __str__(self):
@@ -362,7 +372,7 @@ class Subscription(SoftDeletable):
     )
 
     started_at = models.DateTimeField()
-    expires_at = models.DateTimeField()
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(
         max_length=20,
@@ -444,7 +454,6 @@ class Subscription(SoftDeletable):
                 currency=invoice.currency,
                 qr_limit=invoice.package_plan.max_qrs,
                 scan_limit=invoice.package_plan.max_scans,
-                scan_limit_remaining=invoice.package_plan.max_scans,
                 team_member_limit=invoice.package_plan.max_team_members,
                 bulk_upload_limit=invoice.package_plan.max_bulk_upload,
                 domain_add_limit=invoice.package_plan.max_domain_add,
@@ -503,10 +512,12 @@ class Subscription(SoftDeletable):
             cls.objects.filter(
                 user=user,
                 status=cls.Status.ACTIVE,
-                expires_at__gt=now,
+            ).filter(
+                Q(expires_at__gt=now)
+                | Q(expires_at__isnull=True, package_plan__package__is_free=True)
             )
             .select_related("package_plan", "package_plan__package", "package_plan__duration")
-            .order_by("-expires_at", "-created_at")
+            .order_by("package_plan__package__is_free", "-expires_at", "-created_at")
             .first()
         )
 
@@ -548,47 +559,69 @@ class Subscription(SoftDeletable):
         if not free_price:
             return None
 
-        subscription, created = cls.objects.get_or_create(
-            user=user,
-            package_plan=free_plan,
-            defaults={
-                "price": free_price.price,
-                "currency": free_price.currency,
-                "billing_duration_days": free_plan.duration.days,
-                "status": cls.Status.ACTIVE,
-                "started_at": timezone.now(),
-                "expires_at": timezone.now() + timedelta(days=free_plan.duration.days),
-                "auto_renew": False,
-            },
-        )
-
-        if not created:
-            subscription.price = free_price.price
-            subscription.currency = free_price.currency
-            subscription.billing_duration_days = free_plan.duration.days
-            subscription.save(
-                update_fields=[
-                    "price",
-                    "currency",
-                    "billing_duration_days",
-                    "updated_at",
-                ]
+        plan_values = {
+            "price": free_price.price,
+            "currency": free_price.currency,
+            "billing_duration_days": 0,
+            "expires_at": None,
+            "qr_limit": free_plan.max_qrs,
+            "scan_limit": free_plan.max_scans,
+            "team_member_limit": free_plan.max_team_members,
+            "bulk_upload_limit": free_plan.max_bulk_upload,
+            "domain_add_limit": free_plan.max_domain_add,
+            "features": free_plan.features or {},
+            "auto_renew": False,
+            "next_billing_date": None,
+        }
+        now = timezone.now()
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=user.pk)
+            subscription = (
+                cls.objects.filter(
+                    user=user, package_plan=free_plan, status=cls.Status.ACTIVE,
+                ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+                .order_by("-created_at")
+                .first()
             )
+            if subscription:
+                changed = [field for field, value in plan_values.items()
+                           if getattr(subscription, field) != value]
+                if changed:
+                    for field in changed:
+                        setattr(subscription, field, plan_values[field])
+                    subscription.save(update_fields=changed + ["updated_at"])
+                return subscription
 
-        return subscription
+            cls.objects.filter(
+                user=user, package_plan=free_plan, status=cls.Status.ACTIVE,
+                expires_at__lte=now,
+            ).update(status=cls.Status.EXPIRED, updated_at=now)
+            return cls.objects.create(
+                user=user, package_plan=free_plan, status=cls.Status.ACTIVE,
+                started_at=now, **plan_values,
+            )
 
     @classmethod
     def get_usage_subscription_for_user(cls, user):
-        return cls.get_active_subscription_for_user(user) or cls.get_or_create_default_subscription(user)
+        active = cls.get_active_subscription_for_user(user)
+        if active and not active.package_plan.package.is_free:
+            return active
+        return cls.get_or_create_default_subscription(user) or active
 
     def is_active(self):
         """Check if subscription is currently active"""
-        return self.status == self.Status.ACTIVE and self.expires_at > timezone.now()
+        if self.status != self.Status.ACTIVE:
+            return False
+        if self.expires_at is None:
+            return bool(self.package_plan.package.is_free)
+        return self.expires_at > timezone.now()
 
     def days_remaining(self):
         """Get days remaining in subscription"""
         if not self.is_active():
             return 0
+        if self.expires_at is None:
+            return None
         delta = self.expires_at - timezone.now()
         return delta.days
 

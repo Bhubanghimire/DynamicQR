@@ -323,9 +323,10 @@ class UserAdminSerializer(serializers.ModelSerializer):
 
 class UserAdminDetailSerializer(ProfileDetailSerializer):
     current_package = serializers.SerializerMethodField()
+    billing_address = BillingAddressSerializer(read_only=True)
 
     class Meta(ProfileDetailSerializer.Meta):
-        fields = ProfileDetailSerializer.Meta.fields + ["current_package"]
+        fields = ProfileDetailSerializer.Meta.fields + ["current_package", "billing_address"]
 
     def get_current_package(self, obj):
         from subscriptions.models import Subscription

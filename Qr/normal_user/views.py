@@ -48,6 +48,7 @@ from Qr.serializers import (
 from DynamicQR.pagination import CustomPagination
 from analytics.task import track_scan
 from subscriptions.models import Subscription
+from subscriptions.usage import PackageScanLimitExceeded, get_package_scan_quota
 from system.models import ConfigChoice
 
 
@@ -81,6 +82,13 @@ def _enforce_qr_limit(user, requested=1):
             requested,
         )
 
+    return None
+
+
+def _enforce_package_scan_limit(qr_code):
+    limit, used = get_package_scan_quota(qr_code.created_by)
+    if limit is not None and used >= limit:
+        return _build_limit_response("Scan limit reached for your package.", limit, used)
     return None
 
 
@@ -788,6 +796,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             if password_ui != password_saved:
                 return Response({"data":False, "message": "Wrong password."}, status=status.HTTP_400_BAD_REQUEST)
 
+        limit_response = _enforce_package_scan_limit(qr_code)
+        if limit_response is not None:
+            return limit_response
+
         serializer = self.get_serializer(qr_code)
         return Response(
             {"data": serializer.data, "message": "QR Scan fetched successfully."},
@@ -833,6 +845,10 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             if password_ui != password_saved:
                 return Response({"data": False, "message": "Wrong password."}, status=status.HTTP_400_BAD_REQUEST)
 
+        limit_response = _enforce_package_scan_limit(qr_code)
+        if limit_response is not None:
+            return limit_response
+
         serializer = self.get_serializer(qr_code)
         return Response(
             {"data": serializer.data, "message": "QR Scan fetched successfully."},
@@ -866,10 +882,13 @@ class QRCodeViewSet(viewsets.ModelViewSet):
 
         print("REQUEST DATA:", request_data)
 
-        track_scan(
-            qr_id=qr_code.id,
-            request_data=request_data,
-        )
+        try:
+            track_scan(
+                qr_id=qr_code.id,
+                request_data=request_data,
+            )
+        except PackageScanLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used)
 
         serializer = self.get_serializer(qr_code)
 

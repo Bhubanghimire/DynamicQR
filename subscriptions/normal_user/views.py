@@ -1,5 +1,7 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.db.models import Q, Prefetch
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
@@ -15,6 +17,7 @@ from Qr.models import CustomDomain, Project, QRCode, SharePermissions
 from DynamicQR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
     PaymentProvider, PackagePlanPrice
+from subscriptions.billing import billing_address_snapshot
 from subscriptions.serializers import (
     CheckoutSessionCreateSerializer,
     InvoiceSerializer,
@@ -236,6 +239,7 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
             "package_plan__package",
             "package_plan__duration",
             "payment_method",
+            "currency",
             "subscription",
             "subscription__package_plan",
             "subscription__package_plan__package",
@@ -701,17 +705,31 @@ class PaymentViewSet(viewsets.ViewSet):
         if not settings.ESEWA_PRODUCT_CODE or not settings.ESEWA_SECRET_KEY or not settings.ESEWA_CALLBACK_BASE_URL:
             return Response({"detail": "eSewa is not configured."}, status=503)
 
-        invoice = Invoice.objects.create(
-            user=request.user, package_plan=plan, amount=price.price, tax=0,
-            total=price.price, currency=price.currency,
-            due_date=timezone.now() + timezone.timedelta(hours=24),
-            status=Invoice.Status.PENDING,
-            metadata={
-                "payment_provider": "esewa", "auto_renew": False,
-                "esewa_transaction_uuid": str(uuid4()),
-                "esewa_payment_status": "pending",
-            },
-        )
+        # A repeated checkout request must return the same pending eSewa invoice.
+        # Lock the user row so concurrent requests cannot both create one.
+        with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            invoice = Invoice.objects.filter(
+                user=request.user, package_plan=plan, amount=price.price,
+                total=price.price, currency=price.currency,
+                status=Invoice.Status.PENDING,
+                due_date__gt=timezone.now(),
+                metadata__payment_provider="esewa",
+            ).order_by("-created_at").first()
+            if invoice is None:
+                invoice = Invoice.objects.create(
+                    user=request.user, package_plan=plan, amount=price.price, tax=0,
+                    total=price.price, currency=price.currency,
+                    due_date=timezone.now() + timezone.timedelta(hours=24),
+                    status=Invoice.Status.PENDING,
+                    billing_address=billing_address_snapshot(request.user),
+                    metadata={
+                        "payment_provider": "esewa", "auto_renew": False,
+                        "package_plan_price_id": str(price.id),
+                        "esewa_transaction_uuid": str(uuid4()),
+                        "esewa_payment_status": "pending",
+                    },
+                )
         payment_url, fields = form_for_invoice(invoice)
         return Response({
             "payment_url": payment_url,

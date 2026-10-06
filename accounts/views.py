@@ -642,7 +642,21 @@ class BillingAddressViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         if self.get_queryset().exists():
             raise serializers.ValidationError({"detail": "Billing address already exists. Use update instead."})
+
+        # Remove any legacy soft-deleted row before creating a new address. New
+        # deletions are hard-deleted in perform_destroy below.
+        deleted_address = (
+            BillingAddress._base_manager
+            .filter(user=self.request.user, is_deleted=True)
+            .first()
+        )
+        if deleted_address:
+            deleted_address.hard_delete()
+
         serializer.save(user=self.request.user)
+
+    def perform_destroy(self, instance):
+        instance.hard_delete()
 
 
 def _get_dev_social_user():

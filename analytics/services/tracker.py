@@ -3,6 +3,7 @@
 import logging
 
 from django.db import transaction
+from accounts.models import User
 from rest_framework.exceptions import ValidationError
 
 from analytics.dto import ScanContext
@@ -18,6 +19,7 @@ from analytics.services.qr_summary_service import QRAnalyticsService
 from analytics.services.analytics_time_service import AnalyticsTimeService
 from analytics.services.analytics_dimension_service import AnalyticsDimensionService
 from accounts.tasks import send_scan_notification
+from subscriptions.usage import PackageScanLimitExceeded, get_package_scan_quota
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +55,16 @@ class AnalyticsTracker:
             #
             # Find/Create Visitor
             #
-            VisitorService(self.context).process()
-
-            self._enforce_scan_limit()
-
-            #
-            # Database Updates
-            #
             with transaction.atomic():
+                # Serialize scans across all QRs owned by this user so the
+                # package quota cannot be exceeded by concurrent requests.
+                owner = User.objects.select_for_update().get(pk=self.context.qr.created_by_id)
+                scan_limit, used = get_package_scan_quota(owner)
+                if scan_limit is not None and used >= scan_limit:
+                    raise PackageScanLimitExceeded(scan_limit, used)
+
+                VisitorService(self.context).process()
+                self._enforce_scan_limit()
 
                 scan_event = ScanEventService(self.context).create()
                 self.context.scan_event = scan_event
@@ -73,6 +77,8 @@ class AnalyticsTracker:
                     lambda: send_scan_notification.delay(self.context.scan_event.id)
                 )
 
+        except PackageScanLimitExceeded:
+            raise
         except Exception:
 
             if not suppress_exceptions:

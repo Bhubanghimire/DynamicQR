@@ -11,7 +11,8 @@ from django.db import transaction
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.views.decorators.http import require_GET
 
-from subscriptions.models import Invoice, Payment, PaymentProvider
+from subscriptions.models import Invoice, Payment, PaymentMethod, PaymentProvider
+from subscriptions.billing import billing_address_snapshot
 from subscriptions.services.esewa_service import EsewaError, decode_callback, verify_status
 
 logger = logging.getLogger(__name__)
@@ -54,19 +55,30 @@ def reconcile_esewa_invoice(invoice, callback=None):
         if not code:
             raise EsewaError('eSewa confirmation has no transaction code')
         with transaction.atomic():
-            locked = Invoice.objects.select_for_update().select_related('package_plan').get(pk=invoice.pk)
+            locked = Invoice.objects.select_for_update().select_related('package_plan', 'user').get(pk=invoice.pk)
             current = locked.metadata or {}
             if current.get('payment_provider') != 'esewa' or current.get('esewa_transaction_uuid') != transaction_uuid:
                 raise EsewaError('Invoice transaction mismatch')
             if locked.status == Invoice.Status.PAID:
                 return locked
-            if locked.currency != 'NPR' or locked.total != invoice.total:
+            if locked.currency.code.upper() != 'NPR' or locked.total != invoice.total:
                 raise EsewaError('Invoice amount mismatch')
             current['esewa_transaction_code'] = str(code)
             current['esewa_payment_status'] = 'success'
             locked.metadata = current
-            locked.save(update_fields=['metadata', 'updated_at'])
+            update_fields = ['metadata', 'updated_at']
+            if not locked.billing_address:
+                locked.billing_address = billing_address_snapshot(locked.user)
+                update_fields.append('billing_address')
+            locked.save(update_fields=update_fields)
             locked.mark_as_paid()
+            payment_method, _ = PaymentMethod.objects.get_or_create(
+                user=locked.user,
+                payment_type=PaymentMethod.PaymentType.ESEWA,
+                defaults={'dodo_payment_method_id': None},
+            )
+            locked.payment_method = payment_method
+            locked.save(update_fields=['payment_method', 'updated_at'])
             if locked.subscription and not locked.subscription.auto_renew:
                 locked.subscription.next_billing_date = None
                 locked.subscription.save(update_fields=['next_billing_date', 'updated_at'])

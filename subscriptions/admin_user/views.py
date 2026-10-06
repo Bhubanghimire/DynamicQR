@@ -144,7 +144,7 @@ class PackagePlanViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Invoice.objects.select_related(
         "user", "package_plan", "package_plan__package", "package_plan__duration",
-        "payment_method", "subscription",
+        "payment_method", "currency", "subscription",
     ).all().order_by("-created_at")
     serializer_class = AdminInvoiceSerializer
     permission_classes = [IsAdminUser]
@@ -196,6 +196,34 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         if user_id:
             queryset = queryset.filter(user_id=user_id)
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        """Return the filtered invoice page together with its summary cards."""
+        queryset = self.filter_queryset(self.get_queryset())
+        counts = queryset.values("status").annotate(count=Count("id"))
+        count_by_status = {status_value: 0 for status_value, _label in Invoice.Status.choices}
+        count_by_status.update({item["status"]: item["count"] for item in counts})
+        cards = {
+            "total_invoice": queryset.count(),
+            "count_by_status": count_by_status,
+        }
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data["cards"] = cards
+            return response
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(
+            {
+                "data": serializer.data,
+                "cards": cards,
+                "message": "Invoices fetched successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=["get"], url_path="status-counts")
     def status_counts(self, request):

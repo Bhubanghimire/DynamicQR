@@ -340,6 +340,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     payment_provider = serializers.SerializerMethodField()
     payment_reference = serializers.SerializerMethodField()
     full_name = serializers.CharField(source="user.full_name", read_only=True)
+    currency = CurrencySerializer(read_only=True)
     package_plan = InvoicePackagePlanSerializer(read_only=True)
     payment_method = PaymentMethodSerializer(read_only=True)
     subscription = SubscriptionSummarySerializer(read_only=True)

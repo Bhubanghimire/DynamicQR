@@ -5,10 +5,17 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from subscriptions.models import PackagePlan, PackagePlanPrice
+from accounts.models import User
+from subscriptions.models import PackagePlan, PackagePlanPrice, Subscription
 from subscriptions.services.dodo_product_service import DodoProductService
 
 logger = logging.getLogger(__name__)
+
+
+@receiver(post_save, sender=User)
+def create_free_subscription_for_new_user(sender, instance, created, **kwargs):
+    if created:
+        Subscription.get_or_create_default_subscription(instance)
 
 
 @receiver(post_save, sender=PackagePlan)
