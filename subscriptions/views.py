@@ -12,6 +12,7 @@ from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.views.decorators.http import require_GET
 
 from subscriptions.models import Invoice, Payment, PaymentProvider
+from subscriptions.billing import billing_address_snapshot
 from subscriptions.services.esewa_service import EsewaError, decode_callback, verify_status
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ def reconcile_esewa_invoice(invoice, callback=None):
         if not code:
             raise EsewaError('eSewa confirmation has no transaction code')
         with transaction.atomic():
-            locked = Invoice.objects.select_for_update().select_related('package_plan').get(pk=invoice.pk)
+            locked = Invoice.objects.select_for_update().select_related('package_plan', 'user').get(pk=invoice.pk)
             current = locked.metadata or {}
             if current.get('payment_provider') != 'esewa' or current.get('esewa_transaction_uuid') != transaction_uuid:
                 raise EsewaError('Invoice transaction mismatch')
@@ -65,7 +66,11 @@ def reconcile_esewa_invoice(invoice, callback=None):
             current['esewa_transaction_code'] = str(code)
             current['esewa_payment_status'] = 'success'
             locked.metadata = current
-            locked.save(update_fields=['metadata', 'updated_at'])
+            update_fields = ['metadata', 'updated_at']
+            if not locked.billing_address:
+                locked.billing_address = billing_address_snapshot(locked.user)
+                update_fields.append('billing_address')
+            locked.save(update_fields=update_fields)
             locked.mark_as_paid()
             if locked.subscription and not locked.subscription.auto_renew:
                 locked.subscription.next_billing_date = None

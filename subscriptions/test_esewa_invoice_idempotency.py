@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from accounts.models import User
+from accounts.models import BillingAddress, User
 from subscriptions.models import Currency, Duration, Invoice, Package, PackagePlan, PackagePlanPrice, Payment, PaymentProvider
 from subscriptions.services.esewa_service import _signature
 
@@ -28,6 +28,18 @@ class EsewaInvoiceIdempotencyTests(TestCase):
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+        self.billing_address = BillingAddress.objects.create(
+            user=self.user,
+            full_name="Repeat Buyer",
+            company_name="Example Co",
+            address_line_1="123 Main Street",
+            address_line_2="Suite 4",
+            city="Kathmandu",
+            state_province="Bagmati",
+            postal_code="44600",
+            country="NP",
+            phone="9800000000",
+        )
         currency = Currency.objects.create(code="NPR", name="Nepalese Rupee")
         duration = Duration.objects.create(name="Monthly", days=30)
         package = Package.objects.create(title="Pro", description="Pro package")
@@ -54,6 +66,28 @@ class EsewaInvoiceIdempotencyTests(TestCase):
         self.assertEqual(first.data["transaction_uuid"], second.data["transaction_uuid"])
         self.assertEqual(first.data["form_fields"], second.data["form_fields"])
         self.assertEqual(Invoice.objects.filter(user=self.user).count(), 1)
+
+    def test_checkout_saves_billing_address_snapshot(self):
+        first = self.initiate()
+        invoice = Invoice.objects.get(pk=first.data["invoice_id"])
+        self.assertEqual(invoice.billing_address, {
+            "full_name": "Repeat Buyer",
+            "company_name": "Example Co",
+            "address_line_1": "123 Main Street",
+            "address_line_2": "Suite 4",
+            "city": "Kathmandu",
+            "state_province": "Bagmati",
+            "postal_code": "44600",
+            "country": "NP",
+            "phone": "9800000000",
+        })
+
+        self.billing_address.city = "Pokhara"
+        self.billing_address.save(update_fields=["city"])
+        second = self.initiate()
+        invoice.refresh_from_db()
+        self.assertEqual(first.data["invoice_id"], second.data["invoice_id"])
+        self.assertEqual(invoice.billing_address["city"], "Kathmandu")
 
     def test_different_plan_price_creates_separate_invoice(self):
         first = self.initiate()
@@ -98,6 +132,7 @@ class EsewaInvoiceIdempotencyTests(TestCase):
         PaymentProvider.objects.create(code="esewa", name="eSewa", logo="esewa.png")
         first = self.initiate()
         self.initiate()
+        Invoice.objects.filter(pk=first.data["invoice_id"]).update(billing_address={})
         verify_status.return_value = {
             "status": "COMPLETE", "total_amount": "100.00", "refId": "ES123"
         }
@@ -118,5 +153,6 @@ class EsewaInvoiceIdempotencyTests(TestCase):
         self.assertEqual(self.client.get(callback_url, {"data": encoded}).status_code, 302)
         invoice = Invoice.objects.get(user=self.user)
         self.assertEqual(invoice.status, Invoice.Status.PAID)
+        self.assertEqual(invoice.billing_address["address_line_1"], "123 Main Street")
         self.assertEqual(Payment.objects.filter(invoice=invoice).count(), 1)
         self.assertEqual(Invoice.objects.filter(user=self.user).count(), 1)

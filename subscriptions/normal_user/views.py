@@ -17,6 +17,7 @@ from Qr.models import CustomDomain, Project, QRCode, SharePermissions
 from DynamicQR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
     PaymentProvider, PackagePlanPrice
+from subscriptions.billing import billing_address_snapshot
 from subscriptions.serializers import (
     CheckoutSessionCreateSerializer,
     InvoiceSerializer,
@@ -720,6 +721,7 @@ class PaymentViewSet(viewsets.ViewSet):
                     total=price.price, currency=price.currency,
                     due_date=timezone.now() + timezone.timedelta(hours=24),
                     status=Invoice.Status.PENDING,
+                    billing_address=billing_address_snapshot(request.user),
                     metadata={
                         "payment_provider": "esewa", "auto_renew": False,
                         "package_plan_price_id": str(price.id),
