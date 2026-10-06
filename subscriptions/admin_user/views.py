@@ -144,7 +144,7 @@ class PackagePlanViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
 class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Invoice.objects.select_related(
         "user", "package_plan", "package_plan__package", "package_plan__duration",
-        "payment_method", "subscription",
+        "payment_method", "currency", "subscription",
     ).all().order_by("-created_at")
     serializer_class = AdminInvoiceSerializer
     permission_classes = [IsAdminUser]

@@ -239,6 +239,7 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
             "package_plan__package",
             "package_plan__duration",
             "payment_method",
+            "currency",
             "subscription",
             "subscription__package_plan",
             "subscription__package_plan__package",
