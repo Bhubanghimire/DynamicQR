@@ -629,6 +629,8 @@ def handle_payment_succeeded(event_data):
             try:
                 subscription = Subscription.get_or_create_subscription(invoice)
                 if subscription:
+                    invoice.subscription = subscription
+                    invoice.save(update_fields=["subscription", "updated_at"])
                     logger.info(f"✅ Subscription created/updated: {subscription.id}")
                     logger.info(f"   Status: {subscription.status}")
                     logger.info(f"   Expires: {subscription.expires_at}")
