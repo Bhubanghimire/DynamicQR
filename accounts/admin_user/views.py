@@ -15,7 +15,7 @@ class UserAdminSchema(AdminAutoSchema):
         return super().get_request_serializer(path, method)
 
 class UserAdminViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all().order_by('-date_joined')
+    queryset = User.objects.select_related("billing_address").all().order_by('-date_joined')
     serializer_class = UserAdminSerializer
     permission_classes = [IsAdminUser]
     schema = UserAdminSchema()
