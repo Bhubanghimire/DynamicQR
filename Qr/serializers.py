@@ -11,6 +11,7 @@ from rest_framework import serializers
 from django.utils import timezone
 
 from .models import Invitations, SharePermissions, Project, CustomDomain
+from Qr.access import project_role, qr_role, role_allows
 from system.models import ConfigChoice
 
 from Qr.models import (
@@ -35,7 +36,7 @@ class StatusSummarySerializer(serializers.ModelSerializer):
 
 
 class ProjectSerializer(serializers.ModelSerializer):
-    owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    owner = serializers.HiddenField(default=serializers.CreateOnlyDefault(serializers.CurrentUserDefault()))
     qr_count = serializers.IntegerField(read_only=True)
     accepted_people_count = serializers.IntegerField(read_only=True)
     access_level = serializers.SerializerMethodField()
@@ -50,21 +51,8 @@ class ProjectSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
             return None
-
-        if obj.owner_id == request.user.id:
-            return "all"
-
-        project_content_type = ContentType.objects.get_for_model(Project)
-        project_permission = SharePermissions.objects.filter(
-            user_id=request.user,
-            content_type=project_content_type,
-            resource_id=obj.id,
-            is_deleted=False,
-        ).select_related("role").first()
-        if project_permission is None:
-            return None
-
-        return (project_permission.role.name or "").strip().lower() or None
+        role = project_role(request.user, obj)
+        return "all" if role == "owner" else role
 
     # def create(self, validated_data):
     #     validated_data["status"] = True
@@ -72,7 +60,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 
 class QRCodeSerializer(serializers.ModelSerializer):
-    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    created_by = serializers.HiddenField(default=serializers.CreateOnlyDefault(serializers.CurrentUserDefault()))
     permission = serializers.SerializerMethodField()
     access_level = serializers.SerializerMethodField()
     domain_name = serializers.SerializerMethodField()
@@ -80,6 +68,12 @@ class QRCodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = QRCode
         exclude = ["is_deleted", "deleted_at"]
+
+    def validate_project(self, project):
+        request = self.context.get("request")
+        if project and (request is None or not role_allows(project_role(request.user, project), "edit")):
+            raise serializers.ValidationError("You cannot modify QR codes in this project.")
+        return project
 
     def validate_link_name(self, value):
         if value in (None, ""):
@@ -138,29 +132,8 @@ class QRCodeSerializer(serializers.ModelSerializer):
         return self._get_effective_access_level(obj, request.user)
 
     def _get_effective_access_level(self, obj, user):
-        qr_content_type = ContentType.objects.get_for_model(QRCode)
-        project_content_type = ContentType.objects.get_for_model(Project)
-
-        direct_qr_permission = SharePermissions.objects.filter(
-            user_id=user,
-            content_type=qr_content_type,
-            resource_id=obj.id,
-            is_deleted=False,
-        ).select_related("role").first()
-        if direct_qr_permission is not None:
-            return (direct_qr_permission.role.name or "").strip().lower() or None
-
-        if obj.project_id:
-            project_permission = SharePermissions.objects.filter(
-                user_id=user,
-                content_type=project_content_type,
-                resource_id=obj.project_id,
-                is_deleted=False,
-            ).select_related("role").first()
-            if project_permission is not None:
-                return (project_permission.role.name or "").strip().lower() or None
-
-        return None
+        role = qr_role(user, obj)
+        return "all" if role == "owner" else role
 
 
 class QRCodeDataSerializer(serializers.ModelSerializer):
@@ -509,18 +482,41 @@ class ProjectQRActionSerializer(serializers.Serializer):
     qr_id = serializers.UUIDField(help_text="ID of the QR code to add to or remove from the project.")
 
 
+class ProjectMemberRoleSerializer(serializers.Serializer):
+    role = serializers.UUIDField()
+
+    def validate_role(self, value):
+        try:
+            return ConfigChoice.objects.get(
+                id=value,
+                category__name__iexact="sharing_permission",
+                name__in=("Admin", "Edit", "View"),
+                status=True,
+            )
+        except ConfigChoice.DoesNotExist:
+            raise serializers.ValidationError("Invalid project role.")
+
+
 
 class TemplateDesignSerializer(serializers.ModelSerializer):
-    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    created_by = serializers.HiddenField(default=serializers.CreateOnlyDefault(serializers.CurrentUserDefault()))
     # qr_code = serializers.UUIDField(required=False, allow_null=True)
 
     class Meta:
         model = TemplateDesign
         exclude = ["is_deleted", "deleted_at"]
 
+    def validate_qr_code(self, qr_code):
+        request = self.context.get("request")
+        if qr_code and (request is None or not role_allows(qr_role(request.user, qr_code), "edit")):
+            raise serializers.ValidationError("You cannot edit this QR code.")
+        return qr_code
+
     def _resolve_qr_code(self, qr_code_id):
         if qr_code_id in (None, ""):
             return None
+        if isinstance(qr_code_id, QRCode):
+            return qr_code_id
         try:
             return QRCode.objects.get(id=qr_code_id)
         except QRCode.DoesNotExist:
@@ -616,6 +612,9 @@ class ProjectInvitationSerializer(serializers.Serializer):
         try:
             role = ConfigChoice.objects.get(
                 id=value,
+                category__name__iexact="sharing_permission",
+                name__in=("Admin", "Edit", "View"),
+                status=True,
             )
         except ConfigChoice.DoesNotExist:
             raise serializers.ValidationError(
@@ -632,14 +631,16 @@ class ProjectInvitationSerializer(serializers.Serializer):
         projects = list(
             Project.objects.filter(
                 id__in=project_ids,
-                owner=self.context["request"].user,
                 is_deleted=False,
             )
         )
 
         found_ids = {str(item.id) for item in projects}
         missing_ids = [str(project_id) for project_id in project_ids if str(project_id) not in found_ids]
-        if missing_ids:
+        if missing_ids or any(
+            not role_allows(project_role(self.context["request"].user, project), "admin")
+            for project in projects
+        ):
             raise serializers.ValidationError(
                 {
                     "project_ids": "One or more projects were not found or you do not have access to them."
@@ -823,6 +824,11 @@ class QRImportJobUploadSerializer(serializers.Serializer):
             except Project.DoesNotExist:
                 raise serializers.ValidationError({
                     "project_id": "Invalid project."
+                })
+            request = self.context.get("request")
+            if request is None or not role_allows(project_role(request.user, attrs["project"]), "edit"):
+                raise serializers.ValidationError({
+                    "project_id": "You cannot modify QR codes in this project."
                 })
         else:
             attrs["project"] = None

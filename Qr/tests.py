@@ -7,7 +7,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from Qr.models import CustomDomain, Invitations, Project
+from Qr.models import CustomDomain, Invitations, Project, SharePermissions, TemplateDesign
 from Qr.models import QRCode, QRScanSetting
 from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
@@ -227,6 +227,256 @@ class ProjectInvitationReceiverListTests(TestCase):
         response = self.client.get("/api/v1.1/user/project-invitation/my-invitations/")
 
         self.assertEqual(response.status_code, 401)
+
+
+class ProjectRoleAccessTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+        self.owner = User.objects.create_user(email="owner@example.com", password="password123")
+        self.admin = User.objects.create_user(email="admin@example.com", password="password123")
+        self.editor = User.objects.create_user(email="editor@example.com", password="password123")
+        self.viewer = User.objects.create_user(email="viewer@example.com", password="password123")
+        self.outsider = User.objects.create_user(email="outsider@example.com", password="password123")
+        category = ConfigCategory.objects.create(name="sharing_permission")
+        self.roles = {
+            name: ConfigChoice.objects.create(category=category, name=name, status=True)
+            for name in ("Admin", "Edit", "View")
+        }
+        self.pending = ConfigChoice.objects.create(
+            category=ConfigCategory.objects.create(name="invitation_status"),
+            name="Pending",
+            status=True,
+        )
+        self.project = Project.objects.create(owner=self.owner, name="Shared project")
+        content_type = ContentType.objects.get_for_model(Project)
+        for user, name in ((self.admin, "Admin"), (self.editor, "Edit"), (self.viewer, "View")):
+            SharePermissions.objects.create(
+                user_id=user, content_type=content_type, resource_id=self.project.id, role=self.roles[name]
+            )
+        qr_type = ConfigChoice.objects.create(
+            category=ConfigCategory.objects.create(name="QR Type"), name="Website", status=True
+        )
+        self.qr = QRCode.objects.create(
+            name="Shared QR", qr_type=qr_type, created_by=self.owner, project=self.project
+        )
+
+    def test_view_can_read_but_cannot_change_project_or_qr(self):
+        self.client.force_authenticate(user=self.viewer)
+        project_url = f"/api/v1.1/user/project/{self.project.id}/"
+        qr_url = f"/api/v1.1/user/qr/{self.qr.id}/"
+        self.assertEqual(self.client.get(project_url).status_code, 200)
+        self.assertEqual(self.client.get(qr_url).status_code, 200)
+        self.assertEqual(self.client.patch(project_url, {"name": "Changed"}, format="json").status_code, 403)
+        self.assertEqual(self.client.patch(qr_url, {"QRCode": {"name": "Changed"}}, format="json").status_code, 403)
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1.1/user/project/{self.project.id}/add-qr/",
+                {"qr_id": str(self.qr.id)}, format="json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/v1.1/user/qr/design/",
+                {"qr_code": str(self.qr.id), "design_data": {}}, format="json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.delete(qr_url).status_code, 403)
+        self.assertEqual(self.client.delete(project_url).status_code, 403)
+        create_response = self.client.post(
+            "/api/v1.1/user/qr/",
+            {"QRCode": {"name": "New QR", "qr_type": str(self.qr.qr_type_id), "project": str(self.project.id)}},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, 400)
+        self.assertIn("You cannot modify QR codes in this project", str(create_response.data))
+
+    def test_edit_can_change_content_but_cannot_delete_or_invite(self):
+        self.client.force_authenticate(user=self.editor)
+        project_url = f"/api/v1.1/user/project/{self.project.id}/"
+        qr_url = f"/api/v1.1/user/qr/{self.qr.id}/"
+        self.assertEqual(self.client.patch(project_url, {"name": "Edited"}, format="json").status_code, 200)
+        self.assertEqual(self.client.patch(qr_url, {"QRCode": {"name": "Edited"}}, format="json").status_code, 200)
+        self.assertEqual(self.client.put(project_url, {"name": "Edited again"}, format="json").status_code, 200)
+        self.assertEqual(
+            self.client.put(
+                qr_url,
+                {"QRCode": {"name": "Edited again", "qr_type": str(self.qr.qr_type_id), "project": str(self.project.id)}},
+                format="json",
+            ).status_code,
+            200,
+        )
+        self.project.refresh_from_db()
+        self.qr.refresh_from_db()
+        self.assertEqual(self.project.owner_id, self.owner.id)
+        self.assertEqual(self.qr.created_by_id, self.owner.id)
+        self.assertEqual(self.client.delete(qr_url).status_code, 403)
+        self.assertEqual(self.client.delete(project_url).status_code, 403)
+        response = self.client.post(
+            "/api/v1.1/user/project-invitation/invitations/",
+            {"emails": ["new@example.com"], "role": str(self.roles["View"].id), "project_ids": [str(self.project.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_admin_can_invite_and_manage_project(self):
+        self.client.force_authenticate(user=self.admin)
+        with patch("Qr.normal_user.views.send_project_invitation_email"):
+            response = self.client.post(
+                "/api/v1.1/user/project-invitation/invitations/",
+                {"emails": ["new@example.com"], "role": str(self.roles["View"].id), "project_ids": [str(self.project.id)]},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.client.delete(f"/api/v1.1/user/qr/{self.qr.id}/").status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/v1.1/user/project/{self.project.id}/").status_code, 200)
+
+    def test_only_admin_can_list_other_senders_project_invitations(self):
+        invitation = Invitations.objects.create(
+            email="new@example.com",
+            content_type=ContentType.objects.get_for_model(Project),
+            resource_id=self.project.id,
+            role=self.roles["View"],
+            token="shared-project-invitation",
+            invited_by=self.owner,
+            status=self.pending,
+            expires_at=timezone.now(),
+        )
+        url = "/api/v1.1/user/project-invitation/sent-invitations/"
+        self.client.force_authenticate(user=self.admin)
+        self.assertEqual(self.client.get(url).data["data"][0]["email"], invitation.email)
+        self.client.force_authenticate(user=self.viewer)
+        self.assertEqual(self.client.get(url).data["data"], [])
+
+    def test_admin_can_list_change_and_remove_project_member(self):
+        self.client.force_authenticate(user=self.admin)
+        members_url = f"/api/v1.1/user/project/{self.project.id}/members/"
+        response = self.client.get(members_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({member["role"] for member in response.data["data"]}, {"Admin", "Edit", "View"})
+
+        member_url = f"{members_url}{self.viewer.id}/"
+        response = self.client.patch(
+            member_url,
+            {"role": str(self.roles["Edit"].id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["role"], "Edit")
+        self.assertEqual(
+            SharePermissions.objects.get(user_id=self.viewer, resource_id=self.project.id).role,
+            self.roles["Edit"],
+        )
+
+        response = self.client.delete(member_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            SharePermissions.objects.filter(
+                user_id=self.viewer,
+                resource_id=self.project.id,
+                is_deleted=False,
+            ).exists()
+        )
+
+    def test_edit_and_view_cannot_manage_project_members(self):
+        members_url = f"/api/v1.1/user/project/{self.project.id}/members/"
+        member_url = f"{members_url}{self.viewer.id}/"
+        for user in (self.editor, self.viewer):
+            self.client.force_authenticate(user=user)
+            self.assertEqual(self.client.get(members_url).status_code, 403)
+            self.assertEqual(
+                self.client.patch(
+                    member_url,
+                    {"role": str(self.roles["Edit"].id)},
+                    format="json",
+                ).status_code,
+                403,
+            )
+            self.assertEqual(self.client.delete(member_url).status_code, 403)
+
+    def test_member_role_update_rejects_invalid_role(self):
+        unrelated = ConfigChoice.objects.create(
+            category=ConfigCategory.objects.create(name="Other Role"),
+            name="Admin",
+            status=True,
+        )
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.patch(
+            f"/api/v1.1/user/project/{self.project.id}/members/{self.viewer.id}/",
+            {"role": str(unrelated.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_invitation_rejects_non_role_and_inactive_role(self):
+        self.client.force_authenticate(user=self.owner)
+        unrelated = ConfigChoice.objects.create(
+            category=ConfigCategory.objects.create(name="Other"), name="View", status=True
+        )
+        payload = {"emails": ["new@example.com"], "project_ids": [str(self.project.id)]}
+        for role in (unrelated,):
+            response = self.client.post(
+                "/api/v1.1/user/project-invitation/invitations/",
+                {**payload, "role": str(role.id)}, format="json",
+            )
+            self.assertEqual(response.status_code, 400)
+        self.roles["Admin"].status = False
+        self.roles["Admin"].save(update_fields=["status"])
+        response = self.client.post(
+            "/api/v1.1/user/project-invitation/invitations/",
+            {**payload, "role": str(self.roles["Admin"].id)}, format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_outsider_cannot_read_project_or_qr(self):
+        self.client.force_authenticate(user=self.outsider)
+        self.assertEqual(self.client.get(f"/api/v1.1/user/project/{self.project.id}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/v1.1/user/qr/{self.qr.id}/").status_code, 404)
+
+    def test_template_access_uses_qr_role_and_public_visibility(self):
+        linked_template = TemplateDesign.objects.create(
+            design_data={"name": "private"},
+            status=True,
+            is_public=False,
+            qr_code=self.qr,
+            created_by=self.owner,
+        )
+        public_template = TemplateDesign.objects.create(
+            design_data={"name": "public"},
+            status=True,
+            is_public=True,
+            created_by=self.owner,
+        )
+        linked_url = f"/api/v1.1/user/template/{linked_template.id}/"
+        public_url = f"/api/v1.1/user/template/{public_template.id}/"
+
+        self.client.force_authenticate(user=self.viewer)
+        self.assertEqual(self.client.get(linked_url).status_code, 200)
+        self.assertEqual(
+            self.client.patch(linked_url, {"design_data": {"name": "changed"}}, format="json").status_code,
+            403,
+        )
+
+        self.client.force_authenticate(user=self.outsider)
+        self.assertEqual(self.client.get(linked_url).status_code, 404)
+        self.assertEqual(self.client.get(public_url).status_code, 200)
+        self.assertEqual(
+            self.client.patch(public_url, {"design_data": {"name": "changed"}}, format="json").status_code,
+            403,
+        )
+        self.assertEqual(self.client.delete(public_url).status_code, 403)
+
+        self.client.force_authenticate(user=self.editor)
+        self.assertEqual(
+            self.client.patch(linked_url, {"design_data": {"name": "edited"}}, format="json").status_code,
+            200,
+        )
+        self.assertEqual(self.client.delete(linked_url).status_code, 403)
+
+        self.client.force_authenticate(user=self.admin)
+        self.assertEqual(self.client.delete(linked_url).status_code, 200)
 
 
 class QRCodeListTests(TestCase):
