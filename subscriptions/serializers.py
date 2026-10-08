@@ -158,6 +158,17 @@ class AdminPackagePlanSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # DRF does not consistently propagate ``partial`` through nested
+        # serializers.  PATCHing a package must therefore not require fields
+        # that are only needed when a new plan is created.
+        if self.root.partial:
+            for field in self.fields.values():
+                if not field.read_only:
+                    field.required = False
+            self.fields["prices"].child.partial = True
+
     def validate(self, attrs):
         prices = attrs.get("prices")
         if prices is not None:
@@ -193,6 +204,14 @@ class AdminPackageSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.partial:
+            for field in self.fields.values():
+                if not field.read_only:
+                    field.required = False
+            self.fields["plans"].child.partial = True
 
     def create(self, validated_data):
         plans_data = validated_data.pop("packageplan_set", [])

@@ -74,6 +74,31 @@ class PackageListDurationFilterTests(TestCase):
         self.assertEqual(plan["duration"]["name"], self.monthly.name)
         self.assertEqual(plan["duration"]["days"], self.monthly.days)
 
+    def test_admin_package_patch_accepts_partial_package_and_plan_data(self):
+        admin = User.objects.create_user(
+            email="package-patch-admin@example.com",
+            password="password123",
+            is_staff=True,
+        )
+        plan = PackagePlan.objects.create(
+            package=self.monthly_package,
+            duration=self.monthly,
+            max_scans=100,
+        )
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.patch(
+            f"/api/v1.1/admin/subscriptions/packages/{self.monthly_package.id}/",
+            {"title": "Updated package", "plans": [{"id": str(plan.id), "max_scans": 250}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.monthly_package.refresh_from_db()
+        plan.refresh_from_db()
+        self.assertEqual(self.monthly_package.title, "Updated package")
+        self.assertEqual(plan.max_scans, 250)
+
 
 class NormalUserPackagePriceTests(TestCase):
     def setUp(self):
