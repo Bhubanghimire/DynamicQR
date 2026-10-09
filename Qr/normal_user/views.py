@@ -1124,7 +1124,10 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
         ).annotate(scanned_no=Count("scan_events", distinct=True))
 
     def list(self, request, *args, **kwargs):
-        qrcodes = self._get_accessible_deleted_qr_queryset()
+        # The recycle-bin list is limited to the user's own QR codes and
+        # resources shared with an Admin role. View/Edit shares must not
+        # expose deleted QR codes here.
+        qrcodes = self._get_accessible_deleted_qr_queryset(required="admin")
 
         qr_type_id = request.query_params.get("qr_type") or request.query_params.get("qr_type_id")
         if qr_type_id:
