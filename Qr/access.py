@@ -35,14 +35,22 @@ def project_role(user, project):
     return _shared_role(user, Project, project.id)
 
 
+
 def qr_role(user, qr):
     if qr is None or not user or not user.is_authenticated:
         return None
-    if not qr.project_id and qr.created_by_id == user.id:
+
+    # Project membership governs access to project QR codes.
+    if qr.project_id:
+        return project_role(user, qr.project)
+
+    # The creator owns a personal QR.
+    if qr.created_by_id == user.id:
         return "owner"
-    direct_role = _shared_role(user, QRCode, qr.id)
-    inherited_role = project_role(user, qr.project) if qr.project_id else None
-    return max((direct_role, inherited_role), key=lambda role: ROLE_PRIORITY.get(role, 0))
+
+    # Direct sharing applies to personal QR codes.
+    return _shared_role(user, QRCode, qr.id)
+
 
 
 def role_allows(role, required):

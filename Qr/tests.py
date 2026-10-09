@@ -760,6 +760,11 @@ class SharedProjectQRAccountingTests(TestCase):
             name="Edit",
             status=True,
         )
+        self.admin_role = ConfigChoice.objects.create(
+            category=role_category,
+            name="Admin",
+            status=True,
+        )
         self.qr_type = ConfigChoice.objects.create(
             category=ConfigCategory.objects.create(name="Shared QR Type"),
             name="Website",
@@ -783,6 +788,78 @@ class SharedProjectQRAccountingTests(TestCase):
             created_by=creator,
             project=project,
         )
+
+
+    def test_qr_level_share_cannot_elevate_project_qr_role(self):
+        shared_qr = self._create_qr(
+            creator=self.editor,
+            project=self.project,
+        )
+        outsider = get_user_model().objects.create_user(
+            email="direct-share-outsider@example.com",
+            password="password123",
+        )
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+
+        SharePermissions.objects.create(
+            user_id=self.editor,
+            content_type=qr_content_type,
+            resource_id=shared_qr.id,
+            role=self.admin_role,
+        )
+        SharePermissions.objects.create(
+            user_id=outsider,
+            content_type=qr_content_type,
+            resource_id=shared_qr.id,
+            role=self.admin_role,
+        )
+
+        self.assertEqual(qr_role(self.editor, shared_qr), "edit")
+        self.assertIsNone(qr_role(outsider, shared_qr))
+
+    def test_direct_qr_share_still_applies_to_personal_qrs(self):
+        personal_qr = self._create_qr(
+            creator=self.owner,
+            name="Personal QR",
+        )
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+
+        SharePermissions.objects.create(
+            user_id=self.editor,
+            content_type=qr_content_type,
+            resource_id=personal_qr.id,
+            role=self.admin_role,
+        )
+
+        self.assertEqual(qr_role(self.owner, personal_qr), "owner")
+        self.assertEqual(qr_role(self.editor, personal_qr), "admin")
+
+    def test_soft_deleted_qrs_are_excluded_from_billing(self):
+        shared_qr = self._create_qr(
+            creator=self.editor,
+            project=self.project,
+        )
+        personal_qr = self._create_qr(
+            creator=self.editor,
+            name="Personal QR",
+        )
+
+        self.assertEqual(set(qrs_billed_to(self.owner)), {shared_qr})
+        self.assertEqual(set(qrs_billed_to(self.editor)), {personal_qr})
+
+        shared_qr.delete()
+        personal_qr.delete()
+
+        self.assertFalse(qrs_billed_to(self.owner).exists())
+        self.assertFalse(qrs_billed_to(self.editor).exists())
+
+        shared_qr.restore()
+
+        self.assertEqual(set(qrs_billed_to(self.owner)), {shared_qr})
+        self.assertFalse(qrs_billed_to(self.editor).exists())
+
+
+
 
     def test_billed_queryset_keeps_creator_audit_but_charges_project_owner(self):
         shared_qr = self._create_qr(

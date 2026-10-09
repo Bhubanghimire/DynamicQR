@@ -14,10 +14,11 @@ def account_owner_for_qr(qr):
     """Return the billed account for an existing QR code."""
     return qr.project.owner if qr.project_id else qr.created_by
 
-
 def qrs_billed_to(user):
-    """Active QR codes charged to ``user`` under the project ownership rule."""
+    """Active QR codes charged to the account owner."""
     return QRCode.objects.filter(
+        is_deleted=False,
+    ).filter(
         Q(project__owner=user)
         | Q(project__isnull=True, created_by=user)
     ).distinct()
