@@ -7,6 +7,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from Qr.models import QRCode, Project
+from Qr.services.account_ownership import qrs_billed_to
 from analytics.models import AnalyticsTime, QRAnalytics
 
 
@@ -214,7 +215,7 @@ class DashboardSummaryService:
 
     @classmethod
     def _get_qr_queryset(cls, user, request):
-        queryset = QRCode.objects.filter(created_by=user, is_deleted=False)
+        queryset = qrs_billed_to(user)
 
         project_id = request.query_params.get("project")
         if project_id:

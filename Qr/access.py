@@ -38,7 +38,7 @@ def project_role(user, project):
 def qr_role(user, qr):
     if qr is None or not user or not user.is_authenticated:
         return None
-    if qr.created_by_id == user.id or (qr.project_id and qr.project.owner_id == user.id):
+    if not qr.project_id and qr.created_by_id == user.id:
         return "owner"
     direct_role = _shared_role(user, QRCode, qr.id)
     inherited_role = project_role(user, qr.project) if qr.project_id else None

@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from analytics.dto import ScanContext
 from Qr.models import QRScanSetting
+from Qr.services.account_ownership import account_owner_for_qr
 
 from analytics.services.request_parser import RequestParser
 from analytics.services.user_agent_parser import UserAgentParser
@@ -58,7 +59,8 @@ class AnalyticsTracker:
             with transaction.atomic():
                 # Serialize scans across all QRs owned by this user so the
                 # package quota cannot be exceeded by concurrent requests.
-                owner = User.objects.select_for_update().get(pk=self.context.qr.created_by_id)
+                account_owner = account_owner_for_qr(self.context.qr)
+                owner = User.objects.select_for_update().get(pk=account_owner.pk)
                 scan_limit, used = get_package_scan_quota(owner)
                 if scan_limit is not None and used >= scan_limit:
                     raise PackageScanLimitExceeded(scan_limit, used)

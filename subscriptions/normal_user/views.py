@@ -14,6 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from DynamicQR.schemas import PaginatedAutoSchema
 from Qr.models import CustomDomain, Project, QRCode, SharePermissions
+from Qr.services.account_ownership import qrs_billed_to
 from DynamicQR.pagination import CustomPagination
 from subscriptions.models import Duration, Invoice, Package, PackagePlan, PaymentMethod, Subscription, Currency, \
     PaymentProvider, PackagePlanPrice
@@ -332,7 +333,7 @@ class UsageViewSet(viewsets.GenericViewSet):
                 .first()
             )
 
-        qr_queryset = QRCode.objects.filter(created_by=user)
+        qr_queryset = qrs_billed_to(user)
         qr_generated_count = qr_queryset.count()
 
         scan_totals = qr_queryset.aggregate(

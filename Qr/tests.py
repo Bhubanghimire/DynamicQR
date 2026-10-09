@@ -1,4 +1,5 @@
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
@@ -12,6 +13,11 @@ from Qr.models import QRCode, QRScanSetting
 from subscriptions.models import Package, PackagePlan, Subscription
 from system.models import ConfigCategory, ConfigChoice
 from Qr.services.domain_verification import DomainVerificationService
+from Qr.access import qr_role
+from Qr.services.account_ownership import account_owner_for_qr, qrs_billed_to
+from analytics.models import QRAnalytics
+from subscriptions.quota_service import TeamMemberLimitExceeded, check_team_member_capacity
+from subscriptions.usage import get_package_scan_quota
 
 
 class DomainVerificationFlowTests(SimpleTestCase):
@@ -732,3 +738,187 @@ class CustomDomainDeleteTests(TestCase):
         domain.refresh_from_db()
         self.assertFalse(domain.is_deleted)
         self.assertEqual(domain.automation_error, "SSL cleanup failed")
+
+
+class SharedProjectQRAccountingTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+        self.owner = User.objects.create_user(
+            email="account-owner@example.com",
+            password="password123",
+            full_name="Account Owner",
+        )
+        self.editor = User.objects.create_user(
+            email="project-editor@example.com",
+            password="password123",
+            full_name="Project Editor",
+        )
+        role_category = ConfigCategory.objects.create(name="sharing_permission")
+        self.edit_role = ConfigChoice.objects.create(
+            category=role_category,
+            name="Edit",
+            status=True,
+        )
+        self.qr_type = ConfigChoice.objects.create(
+            category=ConfigCategory.objects.create(name="Shared QR Type"),
+            name="Website",
+            status=True,
+        )
+        self.project = Project.objects.create(
+            owner=self.owner,
+            name="Owner project",
+        )
+        SharePermissions.objects.create(
+            user_id=self.editor,
+            content_type=ContentType.objects.get_for_model(Project),
+            resource_id=self.project.id,
+            role=self.edit_role,
+        )
+
+    def _create_qr(self, *, creator, project=None, name="QR"):
+        return QRCode.objects.create(
+            name=name,
+            qr_type=self.qr_type,
+            created_by=creator,
+            project=project,
+        )
+
+    def test_billed_queryset_keeps_creator_audit_but_charges_project_owner(self):
+        shared_qr = self._create_qr(
+            creator=self.editor,
+            project=self.project,
+            name="Editor-created project QR",
+        )
+        personal_qr = self._create_qr(
+            creator=self.editor,
+            name="Editor personal QR",
+        )
+
+        self.assertEqual(account_owner_for_qr(shared_qr), self.owner)
+        self.assertEqual(account_owner_for_qr(personal_qr), self.editor)
+        self.assertEqual(set(qrs_billed_to(self.owner)), {shared_qr})
+        self.assertEqual(set(qrs_billed_to(self.editor)), {personal_qr})
+        self.assertEqual(shared_qr.created_by, self.editor)
+
+    def test_project_creator_retains_editor_role_instead_of_becoming_owner(self):
+        shared_qr = self._create_qr(creator=self.editor, project=self.project)
+
+        self.assertEqual(qr_role(self.owner, shared_qr), "owner")
+        self.assertEqual(qr_role(self.editor, shared_qr), "edit")
+
+        SharePermissions.objects.filter(
+            user_id=self.editor,
+            resource_id=self.project.id,
+        ).update(is_deleted=True, deleted_at=timezone.now())
+        self.assertIsNone(qr_role(self.editor, shared_qr))
+
+        self.client.force_authenticate(user=self.editor)
+        response = self.client.get("/api/v1.1/user/qr/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(str(shared_qr.id), str(response.data))
+
+    def test_member_creation_uses_owner_capacity(self):
+        self.client.force_authenticate(user=self.editor)
+
+        def qr_limit_for(user):
+            return 1 if user.pk == self.owner.pk else 0
+
+        payload = {
+            "QRCode": {
+                "name": "Shared QR",
+                "qr_type": str(self.qr_type.id),
+                "project": str(self.project.id),
+            }
+        }
+        with patch("subscriptions.quota_service.get_qr_limit", side_effect=qr_limit_for):
+            response = self.client.post("/api/v1.1/user/qr/", payload, format="json")
+            blocked_response = self.client.post("/api/v1.1/user/qr/", payload, format="json")
+
+        self.assertEqual(response.status_code, 201, response.data)
+        created = QRCode.objects.get(pk=response.data["data"]["QRCode"]["id"])
+        self.assertEqual(created.created_by, self.editor)
+        self.assertEqual(created.project, self.project)
+        self.assertEqual(blocked_response.status_code, 403)
+        self.assertEqual(qrs_billed_to(self.owner).count(), 1)
+        self.assertEqual(qrs_billed_to(self.editor).count(), 0)
+
+    def test_project_attach_and_detach_enforce_destination_account_capacity(self):
+        personal_qr = self._create_qr(creator=self.editor, name="Personal")
+        self.client.force_authenticate(user=self.editor)
+        add_url = f"/api/v1.1/user/project/{self.project.id}/add-qr/"
+
+        with patch("subscriptions.quota_service.get_qr_limit", return_value=0):
+            response = self.client.post(add_url, {"qr_id": str(personal_qr.id)}, format="json")
+        self.assertEqual(response.status_code, 403)
+        personal_qr.refresh_from_db()
+        self.assertIsNone(personal_qr.project_id)
+
+        with patch("subscriptions.quota_service.get_qr_limit", return_value=1):
+            response = self.client.post(add_url, {"qr_id": str(personal_qr.id)}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        personal_qr.refresh_from_db()
+        self.assertEqual(personal_qr.project, self.project)
+
+        remove_url = f"/api/v1.1/user/project/{self.project.id}/remove-qr/"
+        with patch("subscriptions.quota_service.get_qr_limit", return_value=0):
+            response = self.client.delete(remove_url, {"qr_id": str(personal_qr.id)}, format="json")
+        self.assertEqual(response.status_code, 403)
+        personal_qr.refresh_from_db()
+        self.assertEqual(personal_qr.project, self.project)
+
+    def test_scan_usage_follows_billed_account(self):
+        shared_qr = self._create_qr(creator=self.editor, project=self.project)
+        personal_qr = self._create_qr(creator=self.editor, name="Personal")
+        QRAnalytics.objects.create(qr=shared_qr, total_scans=7, unique_scans=5)
+        QRAnalytics.objects.create(qr=personal_qr, total_scans=3, unique_scans=2)
+        subscription = SimpleNamespace(
+            scan_limit=100,
+            package_plan=SimpleNamespace(max_scans=100),
+        )
+
+        with patch(
+            "subscriptions.usage.Subscription.get_usage_subscription_for_user",
+            return_value=subscription,
+        ):
+            owner_limit, owner_used = get_package_scan_quota(self.owner)
+            editor_limit, editor_used = get_package_scan_quota(self.editor)
+
+        self.assertEqual((owner_limit, owner_used), (100, 7))
+        self.assertEqual((editor_limit, editor_used), (100, 3))
+
+    def test_restore_enforces_project_owner_capacity(self):
+        shared_qr = self._create_qr(creator=self.editor, project=self.project)
+        shared_qr.delete()
+        self.client.force_authenticate(user=self.owner)
+        restore_url = "/api/v1.1/user/recycle-bin/restore/"
+        payload = {"ids": [str(shared_qr.id)]}
+
+        with patch("subscriptions.quota_service.get_qr_limit", return_value=0):
+            response = self.client.post(restore_url, payload, format="json")
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(QRCode.objects.get_deleted().filter(pk=shared_qr.pk).exists())
+
+        with patch("subscriptions.quota_service.get_qr_limit", return_value=1):
+            response = self.client.post(restore_url, payload, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        restored = QRCode.objects.get(pk=shared_qr.pk)
+        self.assertEqual(account_owner_for_qr(restored), self.owner)
+
+    def test_team_limit_counts_unique_people_across_owned_projects(self):
+        second_project = Project.objects.create(owner=self.owner, name="Second project")
+        SharePermissions.objects.create(
+            user_id=self.editor,
+            content_type=ContentType.objects.get_for_model(Project),
+            resource_id=second_project.id,
+            role=self.edit_role,
+        )
+
+        with patch("subscriptions.quota_service.get_team_member_limit", return_value=1):
+            limit, used, added = check_team_member_capacity(
+                self.owner,
+                [self.editor.email],
+            )
+            self.assertEqual((limit, used, added), (1, 1, 0))
+            with self.assertRaises(TeamMemberLimitExceeded):
+                check_team_member_capacity(self.owner, ["new-member@example.com"])

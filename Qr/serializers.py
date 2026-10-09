@@ -26,6 +26,11 @@ from Qr.models import (
     MediaItem,
 )
 from accounts.models import User
+from subscriptions.quota_service import (
+    TeamMemberLimitExceeded,
+    check_team_member_capacity,
+    lock_account_owner,
+)
 from system.models import ConfigChoice
 
 
@@ -106,9 +111,6 @@ class QRCodeSerializer(serializers.ModelSerializer):
         if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
             return None
 
-        if obj.created_by_id == request.user.id:
-            return "edit"
-
         access_level = self._get_effective_access_level(obj, request.user)
         if access_level is None:
             return None
@@ -125,9 +127,6 @@ class QRCodeSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
             return None
-
-        if obj.created_by_id == request.user.id:
-            return "all"
 
         return self._get_effective_access_level(obj, request.user)
 
@@ -717,20 +716,36 @@ class ProjectInvitationSerializer(serializers.Serializer):
         invitations = []
         content_type = ContentType.objects.get_for_model(Project)
 
-        for email in validated_data["emails"]:
-            for project in projects:
-                invitations.append(
-                    Invitations.objects.create(
-                        email=email,
-                        content_type=content_type,
-                        resource_id=project.id,
-                        role=role,
-                        token=uuid4().hex,
-                        invited_by=self.context["request"].user,
-                        status=pending_status,
-                        expires_at=timezone.now() + timedelta(days=7),
-                    )
-                )
+        try:
+            with transaction.atomic():
+                owners = {project.owner_id: project.owner for project in projects}
+                for owner_id in sorted(owners, key=str):
+                    owner = lock_account_owner(owners[owner_id])
+                    check_team_member_capacity(owner, validated_data["emails"])
+
+                for email in validated_data["emails"]:
+                    for project in projects:
+                        invitations.append(
+                            Invitations.objects.create(
+                                email=email,
+                                content_type=content_type,
+                                resource_id=project.id,
+                                role=role,
+                                token=uuid4().hex,
+                                invited_by=self.context["request"].user,
+                                status=pending_status,
+                                expires_at=timezone.now() + timedelta(days=7),
+                            )
+                        )
+        except TeamMemberLimitExceeded as exc:
+            raise serializers.ValidationError(
+                {
+                    "emails": str(exc),
+                    "limit": exc.limit,
+                    "used": exc.used,
+                    "requested": exc.requested,
+                }
+            ) from exc
 
         return invitations[0] if len(invitations) == 1 else invitations
 
