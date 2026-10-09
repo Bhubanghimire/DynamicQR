@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from accounts.models import BillingAddress, ContactUs, FAQ, NotificationPreference, OTP, User, UserSession, Workspace
 from system.models import ConfigChoice
+from system.serializers import ConfigChoiceSerializer
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -63,9 +64,9 @@ class ChangePasswordSerializer(serializers.Serializer):
 class ProfileDetailSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
     workspace = serializers.SerializerMethodField()
-    gender = serializers.PrimaryKeyRelatedField(read_only=True)
+    gender = ConfigChoiceSerializer(read_only=True, allow_null=True)
     status = serializers.SerializerMethodField()
-    user_type = serializers.PrimaryKeyRelatedField(read_only=True)
+    user_type = ConfigChoiceSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = User
@@ -340,8 +341,10 @@ class UserAdminDetailSerializer(ProfileDetailSerializer):
         return {
             "package_title": package.title if package else None,
             "package_description": package.description if package else None,
-            "price": plan.price if plan else None,
-            "currency": plan.currency if plan else None,
+            # Price and currency are stored as a purchase snapshot on the
+            # subscription; PackagePlan now has one-to-many prices instead.
+            "price": subscription.price if subscription else None,
+            "currency": subscription.currency if subscription else None,
             "max_qrs": plan.max_qrs if plan else None,
             "max_scans": plan.max_scans if plan else None,
             "max_team_members": plan.max_team_members if plan else None,

@@ -3,7 +3,30 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client, SimpleTestCase, TestCase
 from accounts.adapters import GoogleFirstExistingUserSocialAccountAdapter
-from accounts.models import User
+from accounts.models import FAQ, User
+from rest_framework.test import APIClient
+
+
+class AdminFAQPatchTests(TestCase):
+    def test_admin_faq_patch_accepts_a_single_field(self):
+        admin = User.objects.create_user(
+            email="faq-admin@example.com",
+            password="password123",
+            is_staff=True,
+        )
+        faq = FAQ.objects.create(question="Old question", answer="Answer")
+        client = APIClient()
+        client.force_authenticate(user=admin)
+
+        response = client.patch(
+            f"/api/v1.1/admin/accounts/faqs/{faq.id}/",
+            {"is_active": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        faq.refresh_from_db()
+        self.assertFalse(faq.is_active)
 
 
 class GoogleSocialSyncTests(TestCase):

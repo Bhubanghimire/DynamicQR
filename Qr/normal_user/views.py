@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from DynamicQR.schemas import PaginatedAutoSchema
 from Qr.services.domain_verification import DomainVerificationService
 
@@ -33,10 +33,12 @@ from django.db.models import IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 from Qr.models import Project, QRCode, TemplateDesign, QrMedia, MediaItem, QRDesign, Invitations, SharePermissions, \
     QRImportJob, CustomDomain, QRSchedule
+from Qr.access import ProjectRolePermission, QRRolePermission, ROLE_NAMES, project_role, qr_role, role_allows
 from Qr.serializers import (
     ProjectSerializer,
     ProjectDetailSerializer,
     ProjectQRActionSerializer,
+    ProjectMemberRoleSerializer,
     QRCodeSerializer,
     QRCodeBundleSerializer,
     QRCodeDuplicateRequestSerializer,
@@ -146,6 +148,12 @@ class ProjectSchema(PaginatedAutoSchema):
             return "Detach a QR code from the project. URL path parameter `pk` is the project id and request body field `qr_id` is the QR code id."
         if action == "qrs":
             return "List QR codes attached to a project. URL path parameter `pk` is the project id."
+        if action == "members":
+            return "List accepted project members. Only the project owner and Admin members can use this endpoint."
+        if action == "member_detail" and method.upper() == "PATCH":
+            return "Change an accepted member's role to an active Admin, Edit, or View role."
+        if action == "member_detail" and method.upper() == "DELETE":
+            return "Remove an accepted member from the project."
         if action == "upload":
             return "Create a QR playlist when `qr_code` is provided, or reuse an existing playlist when `playlist_id` is provided, then upload one video to that playlist. The `video_description` field is saved on the media item."
         if action in {"update", "partial_update"} and getattr(self.view, "basename", None) == "video":
@@ -160,6 +168,8 @@ class ProjectSchema(PaginatedAutoSchema):
         action = getattr(self.view, "action", None)
         if action in {"add_qr", "remove_qr"}:
             return ProjectQRActionSerializer()
+        if action == "member_detail" and method.upper() == "PATCH":
+            return ProjectMemberRoleSerializer()
         if action == "invitations":
             return ProjectInvitationSerializer()
         if action == "upload":
@@ -287,7 +297,7 @@ class InvitationSchema(PaginatedAutoSchema):
     def get_description(self, path, method):
         action = getattr(self.view, "action", None)
         if action == "sent_invitations":
-            return "List invitations sent by the authenticated user. Use the optional `status` query parameter to filter by invitation status name."
+            return "List invitations sent by the user or for projects they administer. Use the optional `status` query parameter to filter by invitation status name."
         if action == "my_invitations":
             return "List invitations received by the authenticated user."
         return super().get_description(path, method)
@@ -412,7 +422,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     schema = ProjectSchema()
     authentication_classes = [JWTAuthentication]
     model = Project
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ProjectRolePermission]
     lookup_value_regex = r"[0-9a-fA-F-]{36}"
     filter_backends = [SearchFilter]
     search_fields = ["name", "description"]
@@ -441,6 +451,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             user_id=self.request.user,
             content_type=project_content_type,
             is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=("Admin", "Edit", "View"),
+            role__status=True,
         ).values_list("resource_id", flat=True)
 
         return queryset.filter(
@@ -513,6 +526,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=400,
             )
 
+        if not role_allows(qr_role(request.user, qr), "edit"):
+            raise PermissionDenied("You cannot move this QR code.")
+
         qr.project = project
         qr.save(update_fields=["project"])
         return Response(
@@ -577,6 +593,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             is_deleted=False,
         ).filter(
             Q(created_by=request.user)
+            | Q(project__owner=request.user)
             | Q(id__in=shared_qr_ids)
             | (Q(project=project) if shared_project_ids else Q(pk__in=[]))
         ).order_by("name")
@@ -588,12 +605,92 @@ class ProjectViewSet(viewsets.ModelViewSet):
         response.data["message"] = "Project QR codes fetched successfully."
         return response
 
+    @action(detail=True, methods=["get"], url_path="members")
+    def members(self, request, *args, **kwargs):
+        project = self.get_object()
+        if not role_allows(project_role(request.user, project), "admin"):
+            raise PermissionDenied("Only project owners and admins can manage members.")
+
+        project_content_type = ContentType.objects.get_for_model(Project)
+        memberships = SharePermissions.objects.filter(
+            content_type=project_content_type,
+            resource_id=project.id,
+            is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=("Admin", "Edit", "View"),
+        ).select_related("user_id", "role").order_by("user_id__email", "created_at")
+
+        data = [
+            {
+                "permission_id": str(membership.id),
+                "user_id": str(membership.user_id_id),
+                "email": membership.user_id.email,
+                "full_name": membership.user_id.get_full_name(),
+                "role_id": str(membership.role_id),
+                "role": membership.role.name,
+                "role_active": membership.role.status,
+            }
+            for membership in memberships
+        ]
+        return Response(
+            {"data": data, "message": "Project members fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path=r"members/(?P<member_id>[0-9a-fA-F-]{36})",
+    )
+    def member_detail(self, request, member_id=None, *args, **kwargs):
+        project = self.get_object()
+        if not role_allows(project_role(request.user, project), "admin"):
+            raise PermissionDenied("Only project owners and admins can manage members.")
+
+        project_content_type = ContentType.objects.get_for_model(Project)
+        memberships = SharePermissions.objects.filter(
+            user_id_id=member_id,
+            content_type=project_content_type,
+            resource_id=project.id,
+            is_deleted=False,
+        ).select_related("user_id", "role")
+        membership = memberships.first()
+        if membership is None:
+            raise NotFound("Project member not found.")
+
+        if request.method == "PATCH":
+            serializer = ProjectMemberRoleSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            role = serializer.validated_data["role"]
+            memberships.update(role=role)
+            return Response(
+                {
+                    "data": {
+                        "user_id": str(membership.user_id_id),
+                        "email": membership.user_id.email,
+                        "role_id": str(role.id),
+                        "role": role.name,
+                    },
+                    "message": "Project member role updated successfully.",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        removed_count = memberships.update(is_deleted=True, deleted_at=timezone.now())
+        return Response(
+            {
+                "data": {"user_id": str(membership.user_id_id), "removed_count": removed_count},
+                "message": "Project member removed successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class QRCodeViewSet(viewsets.ModelViewSet):
     queryset = QRCode.objects.all().order_by("-created_at")
     schema = ProjectSchema()
     serializer_class = QRCodeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, QRRolePermission]
     authentication_classes = [JWTAuthentication]
     filter_backends = [SearchFilter]
     search_fields = ["name", "qr_type__name"]
@@ -612,16 +709,23 @@ class QRCodeViewSet(viewsets.ModelViewSet):
             user_id=self.request.user,
             content_type=qr_content_type,
             is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=("Admin", "Edit", "View"),
+            role__status=True,
         ).values_list("resource_id", flat=True)
 
         shared_project_ids = SharePermissions.objects.filter(
             user_id=self.request.user,
             content_type=project_content_type,
             is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=("Admin", "Edit", "View"),
+            role__status=True,
         ).values_list("resource_id", flat=True)
 
         return queryset.filter(
             Q(created_by=self.request.user)
+            | Q(project__owner=self.request.user)
             | Q(id__in=shared_qr_ids)
             | Q(project_id__in=shared_project_ids)
         )
@@ -742,6 +846,8 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         qr_code = serializer.validated_data.get("qr_code")
+        if not role_allows(qr_role(request.user, qr_code), "edit"):
+            raise PermissionDenied("You cannot edit this QR code.")
         design = QRDesign.objects.filter(qr_code=qr_code).first()
         is_update = design is not None
 
@@ -929,24 +1035,35 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["name", "qr_type__name"]
 
-    def _get_accessible_deleted_qr_queryset(self):
+    def _get_accessible_deleted_qr_queryset(self, required="view"):
         qr_content_type = ContentType.objects.get_for_model(QRCode)
         project_content_type = ContentType.objects.get_for_model(Project)
+        allowed_roles = {
+            "view": ("Admin", "Edit", "View"),
+            "admin": ("Admin",),
+        }[required]
 
         shared_qr_ids = SharePermissions.objects.filter(
             user_id=self.request.user,
             content_type=qr_content_type,
             is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=allowed_roles,
+            role__status=True,
         ).values_list("resource_id", flat=True)
 
         shared_project_ids = SharePermissions.objects.filter(
             user_id=self.request.user,
             content_type=project_content_type,
             is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=allowed_roles,
+            role__status=True,
         ).values_list("resource_id", flat=True)
 
         return QRCode.objects.get_deleted().filter(
             Q(created_by=self.request.user)
+            | Q(project__owner=self.request.user)
             | Q(id__in=shared_qr_ids)
             | Q(project_id__in=shared_project_ids)
         ).annotate(scanned_no=Count("scan_events", distinct=True))
@@ -981,7 +1098,7 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        qr_codes = self._get_accessible_deleted_qr_queryset().filter(id__in=qr_ids)
+        qr_codes = self._get_accessible_deleted_qr_queryset(required="admin").filter(id__in=qr_ids)
         found_ids = set(str(qr.id) for qr in qr_codes)
         requested_ids = {str(qr_id) for qr_id in qr_ids}
 
@@ -1022,7 +1139,7 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
             )
 
         # Get only deleted QR codes the current user has access to
-        qr_codes = self._get_accessible_deleted_qr_queryset().filter(
+        qr_codes = self._get_accessible_deleted_qr_queryset(required="admin").filter(
             id__in=qr_ids
         )
 
@@ -1070,6 +1187,44 @@ class TemplateViewSet(viewsets.ModelViewSet):
     filter_backends = [SearchFilter]
     search_fields = ["created_by__email"]
 
+    def get_queryset(self):
+        qr_content_type = ContentType.objects.get_for_model(QRCode)
+        project_content_type = ContentType.objects.get_for_model(Project)
+        shared_qr_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=qr_content_type,
+            is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=("Admin", "Edit", "View"),
+            role__status=True,
+        ).values_list("resource_id", flat=True)
+        shared_project_ids = SharePermissions.objects.filter(
+            user_id=self.request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name__in=("Admin", "Edit", "View"),
+            role__status=True,
+        ).values_list("resource_id", flat=True)
+
+        return super().get_queryset().filter(
+            Q(is_public=True)
+            | Q(created_by=self.request.user)
+            | Q(qr_code__created_by=self.request.user)
+            | Q(qr_code__project__owner=self.request.user)
+            | Q(qr_code_id__in=shared_qr_ids)
+            | Q(qr_code__project_id__in=shared_project_ids)
+        ).distinct()
+
+    def _check_template_permission(self, request, template, required):
+        if template.qr_code_id:
+            allowed = role_allows(qr_role(request.user, template.qr_code), required)
+        else:
+            allowed = template.created_by_id == request.user.id
+        if not allowed:
+            action = "delete" if required == "admin" else "edit"
+            raise PermissionDenied(f"You cannot {action} this template.")
+
     def list(self, request, *args, **kwargs):
         templates = self.filter_queryset(self.get_queryset())
         paginator = CustomPagination()
@@ -1101,6 +1256,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
+        self._check_template_permission(request, instance, "edit")
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
@@ -1115,6 +1271,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        self._check_template_permission(request, instance, "admin")
         self.perform_destroy(instance)
         return Response(
             {"data": {}, "message": "Template deleted successfully."},
@@ -1125,6 +1282,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
 class VideoViewSet(viewsets.ViewSet):
     schema = ProjectSchema()
     parser_classes = [JSONParser, MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
 
     @transaction.atomic
     @action(detail=False, methods=["post"], url_path="upload")
@@ -1133,6 +1292,11 @@ class VideoViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
 
         data = serializer.validated_data
+        qr = QRCode.objects.filter(pk=data["qr_code"]).first()
+        if qr is None:
+            raise NotFound("QR code not found.")
+        if not role_allows(qr_role(request.user, qr), "edit"):
+            raise PermissionDenied("You cannot edit this QR code.")
 
         # playlist_id = data.get("playlist_id")
 
@@ -1212,6 +1376,9 @@ class VideoViewSet(viewsets.ViewSet):
                 status=404,
             )
 
+        if not role_allows(qr_role(request.user, media_item.qr_media.qr_code), "admin"):
+            raise PermissionDenied("You cannot delete this QR video.")
+
         media_item.delete()
         return Response(
             {"data": {"id": str(media_item.id)}, "message": "Video media item deleted successfully."},
@@ -1227,6 +1394,9 @@ class VideoViewSet(viewsets.ViewSet):
                 {"data": {}, "message": "Video media item not found."},
                 status=404,
             )
+
+        if not role_allows(qr_role(request.user, media_item.qr_media.qr_code), "edit"):
+            raise PermissionDenied("You cannot edit this QR video.")
 
         serializer = VideoUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
         serializer.is_valid(raise_exception=True)
@@ -1288,7 +1458,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
     serializer_class = ProjectInvitationSerializer
     queryset = Project.objects.all()
 
-    @action(detail=False, methods=["POST"], url_path="invitations")
+    @action(detail=False, methods=["POST"], url_path="invitations", permission_classes=[IsAuthenticated])
     def invitations(self, request, *args, **kwargs):
         
         serializer = ProjectInvitationSerializer(
@@ -1364,6 +1534,16 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
         permission_classes=[IsAuthenticated],
     )
     def sent_invitations(self, request, *args, **kwargs):
+        project_content_type = ContentType.objects.get_for_model(Project)
+        manageable_project_ids = Project.objects.filter(owner=request.user).values_list("id", flat=True)
+        admin_project_ids = SharePermissions.objects.filter(
+            user_id=request.user,
+            content_type=project_content_type,
+            is_deleted=False,
+            role__category__name__iexact="sharing_permission",
+            role__name="Admin",
+            role__status=True,
+        ).values_list("resource_id", flat=True)
         invitations = (
             Invitations.objects.select_related(
                 "invited_by",
@@ -1372,8 +1552,12 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 "content_type",
             )
             .filter(
-                invited_by=request.user,
                 is_deleted=False,
+            )
+            .filter(
+                Q(invited_by=request.user)
+                | Q(content_type=project_content_type, resource_id__in=manageable_project_ids)
+                | Q(content_type=project_content_type, resource_id__in=admin_project_ids)
             )
             .order_by("-created_at")
         )
@@ -1489,6 +1673,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                     .select_related(
                         "invited_by",
                         "role",
+                        "role__category",
                         "status",
                     )
                     .get(
@@ -1536,6 +1721,16 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                         ),
                     },
                     status=status.HTTP_403_FORBIDDEN,
+                )
+
+            if (
+                not invitation.role.status
+                or invitation.role.category.name.lower() != "sharing_permission"
+                or invitation.role.name.strip().lower() not in ROLE_NAMES
+            ):
+                return Response(
+                    {"data": {}, "message": "This invitation has an invalid project role."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             project = invitation.content_object
@@ -1715,8 +1910,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 status=400,
             )
 
-        # Only the person who sent the invitation can cancel it
-        if invitation.invited_by_id != request.user.id:
+        if not role_allows(project_role(request.user, invitation.content_object), "admin"):
             return Response(
                 {
                     "data": {},
@@ -1797,8 +1991,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 status=400,
             )
 
-        # Only sender can resend
-        if invitation.invited_by_id != request.user.id:
+        if not role_allows(project_role(request.user, invitation.content_object), "admin"):
             return Response(
                 {
                     "data": {},

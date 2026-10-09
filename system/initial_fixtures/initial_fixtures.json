@@ -318,7 +318,7 @@
             "name": "Admin",
             "category_id": "fedd94e8-3706-4033-926f-d8a42de04fee",
             "image": null,
-            "status": false,
+            "status": true,
             "description": "🍽️ Delight your customers! Share digital menus that make ordering easy and enjoyable - because great food deserves a great experience.",
             "created_at": "2026-05-03T06:41:11.567Z"
         }
