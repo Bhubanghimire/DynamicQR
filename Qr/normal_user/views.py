@@ -507,14 +507,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     permission_filter |= Q(owner=self.request.user)
                 shared_permissions = set(requested_permissions) & {"admin", "edit", "view"}
                 if shared_permissions:
+                    role_filter = Q(pk__in=[])
+                    for permission in shared_permissions:
+                        role_filter |= Q(role__name__iexact=permission)
+
                     filtered_project_ids = SharePermissions.objects.filter(
                         user_id=self.request.user,
                         content_type=project_content_type,
                         is_deleted=False,
                         role__category__name__iexact="sharing_permission",
-                        role__name__in=shared_permissions,
                         role__status=True,
-                    ).values_list("resource_id", flat=True)
+                    ).filter(role_filter).values_list("resource_id", flat=True)
                     permission_filter |= Q(id__in=filtered_project_ids)
                 queryset = queryset.filter(permission_filter)
 
