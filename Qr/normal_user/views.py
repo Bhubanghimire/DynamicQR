@@ -459,9 +459,46 @@ class ProjectViewSet(viewsets.ModelViewSet):
             role__status=True,
         ).values_list("resource_id", flat=True)
 
-        return queryset.filter(
+        queryset = queryset.filter(
             Q(owner=self.request.user) | Q(id__in=shared_project_ids)
-        ).order_by("-created_at")
+        )
+
+        if self.action == "list":
+            requested_permissions = [
+                permission.strip().lower()
+                for value in self.request.query_params.getlist("permission")
+                for permission in value.split(",")
+                if permission.strip()
+            ]
+            valid_permissions = {"owner", "admin", "edit", "view"}
+            invalid_permissions = set(requested_permissions) - valid_permissions
+            if invalid_permissions:
+                raise ValidationError({
+                    "permission": (
+                        "Unsupported permission(s): "
+                        + ", ".join(sorted(invalid_permissions))
+                        + ". Allowed values: owner, admin, edit, view."
+                    )
+                })
+
+            if requested_permissions:
+                permission_filter = Q(pk__in=[])
+                if "owner" in requested_permissions:
+                    permission_filter |= Q(owner=self.request.user)
+                shared_permissions = set(requested_permissions) & {"admin", "edit", "view"}
+                if shared_permissions:
+                    filtered_project_ids = SharePermissions.objects.filter(
+                        user_id=self.request.user,
+                        content_type=project_content_type,
+                        is_deleted=False,
+                        role__category__name__iexact="sharing_permission",
+                        role__name__in=shared_permissions,
+                        role__status=True,
+                    ).values_list("resource_id", flat=True)
+                    permission_filter |= Q(id__in=filtered_project_ids)
+                queryset = queryset.filter(permission_filter)
+
+        return queryset.order_by("-created_at")
 
     def get_search_fields(self):
         if self.action == "qrs":
