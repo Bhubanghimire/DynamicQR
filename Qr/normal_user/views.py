@@ -1656,6 +1656,21 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 email__iexact=invitation.email,
                 is_deleted=False,
             ).first()
+
+            # Accepted invitations represent active memberships in this
+            # endpoint. Once the owner removes the member, hide the stale
+            # accepted invitation from the sender list.
+            if invitation.accepted_at and (
+                receiver is None
+                or not SharePermissions.objects.filter(
+                    user_id=receiver,
+                    content_type=project_content_type,
+                    resource_id=invitation.resource_id,
+                    is_deleted=False,
+                ).exists()
+            ):
+                continue
+
             key = (invitation.email.lower(), str(invitation.role_id))
             if key not in group_index:
                 group_index[key] = len(grouped)
