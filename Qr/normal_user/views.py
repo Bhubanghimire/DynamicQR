@@ -384,7 +384,7 @@ class CustomDomainSchema(PaginatedAutoSchema):
 
 def send_project_invitation_email(invitation):
     invitation_url = (
-        f"{settings.FRONTEND_URL}"
+        f"{settings.FRONTEND_URL.rstrip('/')}"
         f"/project/invitations/{invitation.token}"
     )
 
