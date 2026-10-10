@@ -167,6 +167,26 @@ class ProjectSchema(PaginatedAutoSchema):
             return "Duplicate a QR code using fresh content and design supplied in the request body."
         return super().get_description(path, method)
 
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if getattr(self.view, "action", None) == "list":
+            params.append(
+                {
+                    "name": "permission",
+                    "required": False,
+                    "in": "query",
+                    "description": (
+                        "Filter projects by permission. Accepts comma-separated "
+                        "values: owner, admin, edit, view."
+                    ),
+                    "schema": {
+                        "type": "string",
+                        "example": "owner,admin,edit,view",
+                    },
+                }
+            )
+        return params
+
     def get_request_serializer(self, path, method):
         action = getattr(self.view, "action", None)
         if action in {"add_qr", "remove_qr"}:
