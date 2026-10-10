@@ -29,6 +29,13 @@ def get_qr_limit(user):
     subscription = Subscription.get_usage_subscription_for_user(user)
     if subscription is None:
         return 0
+
+    # ``None`` on the current package plan means unlimited.  Do not let an
+    # older subscription snapshot (for example 0 or a previously finite
+    # limit) turn an unlimited package back into a capped package.
+    if subscription.package_plan and subscription.package_plan.max_qrs is None:
+        return None
+
     if subscription.qr_limit is not None:
         return subscription.qr_limit
     return subscription.package_plan.max_qrs if subscription.package_plan else 0
