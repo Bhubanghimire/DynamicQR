@@ -1662,6 +1662,7 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 grouped.append(
                     {
                         "email": invitation.email,
+                        "user_id": str(receiver.id) if receiver else None,
                         "receiver_name": receiver.get_full_name() if receiver else None,
                         "role_name": invitation.role.name,
                         "project_count": 0,
