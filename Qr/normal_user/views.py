@@ -176,6 +176,22 @@ class ProjectSchema(PaginatedAutoSchema):
                     "required": False,
                     "in": "query",
                     "description": (
+                        "Filter domains by permission. Custom domains are "
+                        "currently user-owned, so use `owner`. Comma-separated "
+                        "values are supported: owner, admin, edit, view."
+                    ),
+                    "schema": {
+                        "type": "string",
+                        "example": "owner",
+                    },
+                }
+            )
+            params.append(
+                {
+                    "name": "permission",
+                    "required": False,
+                    "in": "query",
+                    "description": (
                         "Filter projects by permission. Accepts comma-separated "
                         "values: owner, admin, edit, view."
                     ),
@@ -2474,6 +2490,26 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             user=self.request.user,
             is_deleted=False
         )
+        permission_values = [
+            permission.strip().lower()
+            for value in self.request.query_params.getlist("permission")
+            for permission in value.split(",")
+            if permission.strip()
+        ]
+        if permission_values:
+            valid_permissions = {"owner", "admin", "edit", "view"}
+            invalid_permissions = set(permission_values) - valid_permissions
+            if invalid_permissions:
+                raise ValidationError({
+                    "permission": (
+                        "Unsupported permission(s): "
+                        + ", ".join(sorted(invalid_permissions))
+                        + ". Allowed values: owner, admin, edit, view."
+                    )
+                })
+            if "owner" not in permission_values:
+                queryset = queryset.none()
+
         status_param = self.request.query_params.get("status")
         if status_param:
             valid_statuses = {choice[0] for choice in CustomDomain.Status.choices}
