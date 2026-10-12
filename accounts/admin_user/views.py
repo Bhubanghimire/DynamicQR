@@ -262,6 +262,12 @@ class ContactUsAdminViewSet(viewsets.ReadOnlyModelViewSet):
                 "Search contact requests by name, email, subject, or message.",
                 example="support@example.com",
             ),
+            admin_query_parameter(
+                "status",
+                "Filter contact requests by reply status.",
+                enum=["replied", "unreplied"],
+                example="replied",
+            ),
         ],
     }
 
@@ -282,6 +288,13 @@ class ContactUsAdminViewSet(viewsets.ReadOnlyModelViewSet):
                 | Q(subject__icontains=search)
                 | Q(message__icontains=search)
             )
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            status_value = status_param.strip().lower()
+            if status_value in {"replied", "unreplied"}:
+                queryset = queryset.filter(replied=status_value == "replied")
+
         return queryset
 
     def list(self, request, *args, **kwargs):
