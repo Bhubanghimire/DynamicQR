@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
 from accounts.models import ContactUs, User, FAQ
-from accounts.serializers import ContactUsAdminSerializer, ContactUsReplySerializer, UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer, FAQAdminSerializer
+from accounts.serializers import ContactUsAdminSerializer, ContactUsReplySerializer, ContactUsReplyStatusSerializer, UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer, FAQAdminSerializer
 from accounts.views import AdminAutoSchema, admin_query_parameter
 
 class UserAdminSchema(AdminAutoSchema):
@@ -268,6 +268,8 @@ class ContactUsAdminViewSet(viewsets.ReadOnlyModelViewSet):
     def get_serializer_class(self):
         if self.action == "reply":
             return ContactUsReplySerializer
+        if self.action == "reply_status":
+            return ContactUsReplyStatusSerializer
         return super().get_serializer_class()
 
     def get_queryset(self):
@@ -324,6 +326,23 @@ class ContactUsAdminViewSet(viewsets.ReadOnlyModelViewSet):
                     "email": contact.email,
                 },
                 "message": "Reply email sent successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["patch"], url_path="reply-status")
+    def reply_status(self, request, *args, **kwargs):
+        contact = self.get_object()
+        serializer = ContactUsReplyStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        contact.replied = serializer.validated_data["replied"]
+        contact.save(update_fields=["replied"])
+
+        return Response(
+            {
+                "data": ContactUsAdminSerializer(contact).data,
+                "message": "Contact request reply status updated successfully.",
             },
             status=status.HTTP_200_OK,
         )
