@@ -31,6 +31,7 @@ from subscriptions.serializers import (
 )
 from subscriptions.services.esewa_service import EsewaError, form_for_invoice
 from subscriptions.views import reconcile_esewa_invoice
+from subscriptions.normal_user.pricing import select_plan_price
 
 
 class ProjectSchema(PaginatedAutoSchema):
@@ -309,7 +310,7 @@ class UsageViewSet(viewsets.GenericViewSet):
         }
 
     def list(self, request):
-        payload = self._build_usage_payload(request.user)
+        payload = self._build_usage_payload(request.user, request)
 
         serializer = self.get_serializer(payload)
         return Response(serializer.data)
@@ -320,7 +321,7 @@ class UsageViewSet(viewsets.GenericViewSet):
         serializer = SubscriptionUsageSummarySerializer(payload)
         return Response(serializer.data)
 
-    def _build_usage_payload(self, user):
+    def _build_usage_payload(self, user, request=None):
         subscription = Subscription.get_usage_subscription_for_user(user)
         if subscription:
             subscription = (
@@ -344,6 +345,11 @@ class UsageViewSet(viewsets.GenericViewSet):
         unique_scan_count = scan_totals["unique_scan_count"] or 0
 
         package = subscription.package_plan.package if subscription and subscription.package_plan else None
+        selected_price = (
+            select_plan_price(subscription.package_plan, request)
+            if subscription and subscription.package_plan
+            else None
+        )
         qr_limit = None
         scan_limit = None
         team_member_limit = None
@@ -369,6 +375,8 @@ class UsageViewSet(viewsets.GenericViewSet):
             "subscription_status": subscription.status if subscription else "none",
             "package": package,
             "package_title": package.title if package else "",
+            "package_price": selected_price.price if selected_price else None,
+            "currency": selected_price.currency.name if selected_price else None,
             "package_plan": subscription.package_plan if subscription else None,
             "qr_generated_count": qr_generated_count,
             "qr_usage": self._build_quota(qr_generated_count, qr_limit),
@@ -383,7 +391,7 @@ class UsageViewSet(viewsets.GenericViewSet):
         }
 
     def _build_usage_summary_payload(self, user):
-        usage_payload = self._build_usage_payload(user)
+        usage_payload = self._build_usage_payload(user, self.request)
         subscription = usage_payload["subscription"]
         package = usage_payload["package"]
         package_plan = usage_payload["package_plan"]
