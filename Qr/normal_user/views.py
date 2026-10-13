@@ -20,9 +20,7 @@ from Qr.services.domain_verification import DomainVerificationService
 
 from Qr.tasks import (
     process_qr_import,
-    get_bulk_upload_limit,
     get_importer,
-    get_qr_limit,
     load_import_workbook_rows,
     verify_and_activate_domain_async,
 )
@@ -50,8 +48,17 @@ from Qr.serializers import (
 from DynamicQR.pagination import CustomPagination
 from analytics.task import track_scan
 from subscriptions.models import Subscription
+from subscriptions.quota_service import (
+    QRLimitExceeded,
+    TeamMemberLimitExceeded,
+    check_qr_capacity,
+    check_team_member_capacity,
+    get_bulk_upload_limit,
+    lock_account_owner,
+)
 from subscriptions.usage import PackageScanLimitExceeded, get_package_scan_quota
 from system.models import ConfigChoice
+from Qr.services.account_ownership import account_owner_for_project, account_owner_for_qr
 
 
 def _build_limit_response(message, limit, used, requested=1):
@@ -71,24 +78,20 @@ def _build_limit_response(message, limit, used, requested=1):
 
 
 def _enforce_qr_limit(user, requested=1):
-    qr_limit = get_qr_limit(user)
-    if qr_limit is None:
-        return None
-
-    used = QRCode.objects.filter(created_by=user).count()
-    if used + requested > qr_limit:
+    try:
+        check_qr_capacity(user, requested=requested)
+    except QRLimitExceeded as exc:
         return _build_limit_response(
-            "QR code limit reached for your package.",
-            qr_limit,
-            used,
-            requested,
+            str(exc),
+            exc.limit,
+            exc.used,
+            exc.requested,
         )
-
     return None
 
 
 def _enforce_package_scan_limit(qr_code):
-    limit, used = get_package_scan_quota(qr_code.created_by)
+    limit, used = get_package_scan_quota(account_owner_for_qr(qr_code))
     if limit is not None and used >= limit:
         return _build_limit_response("Scan limit reached for your package.", limit, used)
     return None
@@ -163,6 +166,42 @@ class ProjectSchema(PaginatedAutoSchema):
         if action == "duplicate":
             return "Duplicate a QR code using fresh content and design supplied in the request body."
         return super().get_description(path, method)
+
+    def get_filter_parameters(self, path, method):
+        params = super().get_filter_parameters(path, method)
+        if getattr(self.view, "action", None) == "list":
+            params.append(
+                {
+                    "name": "permission",
+                    "required": False,
+                    "in": "query",
+                    "description": (
+                        "Filter domains by permission. Custom domains are "
+                        "currently user-owned, so use `owner`. Comma-separated "
+                        "values are supported: owner, admin, edit, view."
+                    ),
+                    "schema": {
+                        "type": "string",
+                        "example": "owner",
+                    },
+                }
+            )
+            params.append(
+                {
+                    "name": "permission",
+                    "required": False,
+                    "in": "query",
+                    "description": (
+                        "Filter projects by permission. Accepts comma-separated "
+                        "values: owner, admin, edit, view."
+                    ),
+                    "schema": {
+                        "type": "string",
+                        "example": "owner,admin,edit,view",
+                    },
+                }
+            )
+        return params
 
     def get_request_serializer(self, path, method):
         action = getattr(self.view, "action", None)
@@ -381,7 +420,7 @@ class CustomDomainSchema(PaginatedAutoSchema):
 
 def send_project_invitation_email(invitation):
     invitation_url = (
-        f"{settings.FRONTEND_URL}"
+        f"{settings.FRONTEND_URL.rstrip('/')}"
         f"/project/invitations/{invitation.token}"
     )
 
@@ -456,9 +495,49 @@ class ProjectViewSet(viewsets.ModelViewSet):
             role__status=True,
         ).values_list("resource_id", flat=True)
 
-        return queryset.filter(
+        queryset = queryset.filter(
             Q(owner=self.request.user) | Q(id__in=shared_project_ids)
-        ).order_by("-created_at")
+        )
+
+        if self.action == "list":
+            requested_permissions = [
+                permission.strip().lower()
+                for value in self.request.query_params.getlist("permission")
+                for permission in value.split(",")
+                if permission.strip()
+            ]
+            valid_permissions = {"owner", "admin", "edit", "view"}
+            invalid_permissions = set(requested_permissions) - valid_permissions
+            if invalid_permissions:
+                raise ValidationError({
+                    "permission": (
+                        "Unsupported permission(s): "
+                        + ", ".join(sorted(invalid_permissions))
+                        + ". Allowed values: owner, admin, edit, view."
+                    )
+                })
+
+            if requested_permissions:
+                permission_filter = Q(pk__in=[])
+                if "owner" in requested_permissions:
+                    permission_filter |= Q(owner=self.request.user)
+                shared_permissions = set(requested_permissions) & {"admin", "edit", "view"}
+                if shared_permissions:
+                    role_filter = Q(pk__in=[])
+                    for permission in shared_permissions:
+                        role_filter |= Q(role__name__iexact=permission)
+
+                    filtered_project_ids = SharePermissions.objects.filter(
+                        user_id=self.request.user,
+                        content_type=project_content_type,
+                        is_deleted=False,
+                        role__category__name__iexact="sharing_permission",
+                        role__status=True,
+                    ).filter(role_filter).values_list("resource_id", flat=True)
+                    permission_filter |= Q(id__in=filtered_project_ids)
+                queryset = queryset.filter(permission_filter)
+
+        return queryset.order_by("-created_at")
 
     def get_search_fields(self):
         if self.action == "qrs":
@@ -519,18 +598,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            qr = QRCode.objects.get(id=qr_id)
+            with transaction.atomic():
+                qr = (
+                    QRCode.objects.select_for_update()
+                    .select_related("project__owner", "created_by")
+                    .get(id=qr_id)
+                )
+                if not role_allows(qr_role(request.user, qr), "edit"):
+                    raise PermissionDenied("You cannot move this QR code.")
+
+                current_owner = account_owner_for_qr(qr)
+                destination_owner = account_owner_for_project(project, request.user)
+                if current_owner.pk != destination_owner.pk:
+                    destination_owner = lock_account_owner(destination_owner)
+                    check_qr_capacity(destination_owner)
+
+                qr.project = project
+                qr.save(update_fields=["project"])
         except QRCode.DoesNotExist:
             return Response(
                 {"data": {}, "message": "QR code not found."},
                 status=400,
             )
-
-        if not role_allows(qr_role(request.user, qr), "edit"):
-            raise PermissionDenied("You cannot move this QR code.")
-
-        qr.project = project
-        qr.save(update_fields=["project"])
+        except QRLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used, exc.requested)
         return Response(
             {
                 "data": {"project_id": project.id, "qr_id": qr.id},
@@ -551,15 +642,27 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            qr = QRCode.objects.get(id=qr_id, project=project)
+            with transaction.atomic():
+                qr = (
+                    QRCode.objects.select_for_update()
+                    .select_related("project__owner", "created_by")
+                    .get(id=qr_id, project=project)
+                )
+                current_owner = account_owner_for_qr(qr)
+                destination_owner = qr.created_by
+                if current_owner.pk != destination_owner.pk:
+                    destination_owner = lock_account_owner(destination_owner)
+                    check_qr_capacity(destination_owner)
+
+                qr.project = None
+                qr.save(update_fields=["project"])
         except QRCode.DoesNotExist:
             return Response(
                 {"data": {}, "message": "QR code not found in this project."},
                 status=400,
             )
-
-        qr.project = None
-        qr.save(update_fields=["project"])
+        except QRLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used, exc.requested)
         return Response(
             {
                 "data": {"project_id": project.id, "qr_id": qr.id},
@@ -724,7 +827,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         ).values_list("resource_id", flat=True)
 
         return queryset.filter(
-            Q(created_by=self.request.user)
+            Q(created_by=self.request.user, project__isnull=True)
             | Q(project__owner=self.request.user)
             | Q(id__in=shared_qr_ids)
             | Q(project_id__in=shared_project_ids)
@@ -806,11 +909,15 @@ class QRCodeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        limit_response = _enforce_qr_limit(request.user)
-        if limit_response is not None:
-            return limit_response
-
-        qr_code = serializer.save()
+        project = serializer.validated_data["QRCode"].get("project")
+        account_owner = account_owner_for_project(project, request.user)
+        try:
+            with transaction.atomic():
+                account_owner = lock_account_owner(account_owner)
+                check_qr_capacity(account_owner)
+                qr_code = serializer.save()
+        except QRLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used, exc.requested)
         return Response(
             {"data": self.get_serializer(qr_code).data, "message": "QR code created successfully."},
             status=status.HTTP_201_CREATED,
@@ -825,7 +932,24 @@ class QRCodeViewSet(viewsets.ModelViewSet):
                 {"data": serializer.errors, "message": "Validation error."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        qr_code = serializer.save()
+        qr_data = serializer.validated_data.get("QRCode", {})
+        target_project = qr_data.get("project", instance.project)
+        try:
+            with transaction.atomic():
+                locked_instance = (
+                    QRCode.objects.select_for_update()
+                    .select_related("project__owner", "created_by")
+                    .get(pk=instance.pk)
+                )
+                current_owner = account_owner_for_qr(locked_instance)
+                target_owner = account_owner_for_project(target_project, locked_instance.created_by)
+                if current_owner.pk != target_owner.pk:
+                    target_owner = lock_account_owner(target_owner)
+                    check_qr_capacity(target_owner)
+                serializer.instance = locked_instance
+                qr_code = serializer.save()
+        except QRLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used, exc.requested)
         return Response(
             {"data": self.get_serializer(qr_code).data, "message": "QR code updated successfully."},
             status=status.HTTP_200_OK,
@@ -1008,16 +1132,23 @@ class QRCodeViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="duplicate")
     def duplicate(self, request, *args, **kwargs):
         source_qr = self.get_object()
-        limit_response = _enforce_qr_limit(request.user)
-        if limit_response is not None:
-            return limit_response
-
-        serializer = self.get_serializer(
-            data=request.data,
-            context={**self.get_serializer_context(), "source_qr": source_qr},
-        )
-        serializer.is_valid(raise_exception=True)
-        duplicate_qr = serializer.save()
+        try:
+            with transaction.atomic():
+                source_qr = (
+                    QRCode.objects.select_for_update()
+                    .select_related("project__owner", "created_by")
+                    .get(pk=source_qr.pk)
+                )
+                account_owner = lock_account_owner(account_owner_for_qr(source_qr))
+                check_qr_capacity(account_owner)
+                serializer = self.get_serializer(
+                    data=request.data,
+                    context={**self.get_serializer_context(), "source_qr": source_qr},
+                )
+                serializer.is_valid(raise_exception=True)
+                duplicate_qr = serializer.save()
+        except QRLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used, exc.requested)
         return Response(
             {
                 "data": QRCodeBundleSerializer(duplicate_qr, context=self.get_serializer_context()).data,
@@ -1062,14 +1193,17 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
         ).values_list("resource_id", flat=True)
 
         return QRCode.objects.get_deleted().filter(
-            Q(created_by=self.request.user)
+            Q(created_by=self.request.user, project__isnull=True)
             | Q(project__owner=self.request.user)
             | Q(id__in=shared_qr_ids)
             | Q(project_id__in=shared_project_ids)
         ).annotate(scanned_no=Count("scan_events", distinct=True))
 
     def list(self, request, *args, **kwargs):
-        qrcodes = self._get_accessible_deleted_qr_queryset()
+        # The recycle-bin list is limited to the user's own QR codes and
+        # resources shared with an Admin role. View/Edit shares must not
+        # expose deleted QR codes here.
+        qrcodes = self._get_accessible_deleted_qr_queryset(required="admin")
 
         qr_type_id = request.query_params.get("qr_type") or request.query_params.get("qr_type_id")
         if qr_type_id:
@@ -1160,11 +1294,35 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        restored_count = 0
+        try:
+            with transaction.atomic():
+                locked_qr_codes = list(
+                    QRCode.objects.get_deleted()
+                    .select_for_update()
+                    .select_related("project__owner", "created_by")
+                    .filter(id__in=qr_ids)
+                )
 
-        for qr_code in qr_codes:
-            qr_code.restore()
-            restored_count += 1
+                owner_counts = {}
+                for qr_code in locked_qr_codes:
+                    owner = account_owner_for_qr(qr_code)
+                    owner_entry = owner_counts.setdefault(
+                        owner.pk,
+                        {"owner": owner, "count": 0},
+                    )
+                    owner_entry["count"] += 1
+
+                for owner_id in sorted(owner_counts, key=str):
+                    owner_entry = owner_counts[owner_id]
+                    owner = lock_account_owner(owner_entry["owner"])
+                    check_qr_capacity(owner, requested=owner_entry["count"])
+
+                for qr_code in locked_qr_codes:
+                    qr_code.restore()
+        except QRLimitExceeded as exc:
+            return _build_limit_response(str(exc), exc.limit, exc.used, exc.requested)
+
+        restored_count = len(locked_qr_codes)
 
         return Response(
             {
@@ -1574,12 +1732,28 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 email__iexact=invitation.email,
                 is_deleted=False,
             ).first()
+
+            # Accepted invitations represent active memberships in this
+            # endpoint. Once the owner removes the member, hide the stale
+            # accepted invitation from the sender list.
+            if invitation.accepted_at and (
+                receiver is None
+                or not SharePermissions.objects.filter(
+                    user_id=receiver,
+                    content_type=project_content_type,
+                    resource_id=invitation.resource_id,
+                    is_deleted=False,
+                ).exists()
+            ):
+                continue
+
             key = (invitation.email.lower(), str(invitation.role_id))
             if key not in group_index:
                 group_index[key] = len(grouped)
                 grouped.append(
                     {
                         "email": invitation.email,
+                        "user_id": str(receiver.id) if receiver else None,
                         "receiver_name": receiver.get_full_name() if receiver else None,
                         "role_name": invitation.role.name,
                         "project_count": 0,
@@ -1734,6 +1908,17 @@ class ProjectInvitationViewSet(viewsets.GenericViewSet):
                 )
 
             project = invitation.content_object
+
+            try:
+                project_owner = lock_account_owner(project.owner)
+                check_team_member_capacity(project_owner, [request.user.email])
+            except TeamMemberLimitExceeded as exc:
+                return _build_limit_response(
+                    str(exc),
+                    exc.limit,
+                    exc.used,
+                    exc.requested,
+                )
 
             content_type = ContentType.objects.get_for_model(
                 Project
@@ -2069,7 +2254,8 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
-        bulk_upload_limit = get_bulk_upload_limit(request.user)
+        account_owner = account_owner_for_project(project, request.user)
+        bulk_upload_limit = get_bulk_upload_limit(account_owner)
         temp_import_job = QRImportJob(
             user=request.user,
             project=project,
@@ -2096,7 +2282,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
             if hasattr(file, "seek"):
                 file.seek(0)
 
-        limit_response = _enforce_qr_limit(request.user, requested=len(data_rows))
+        limit_response = _enforce_qr_limit(account_owner, requested=len(data_rows))
         if limit_response is not None:
             return limit_response
 
@@ -2197,7 +2383,8 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
         design_data = serializer.validated_data["design_data"]
         file = serializer.validated_data["file"]
 
-        bulk_upload_limit = get_bulk_upload_limit(request.user)
+        account_owner = account_owner_for_project(project, request.user)
+        bulk_upload_limit = get_bulk_upload_limit(account_owner)
 
         pending_status = ConfigChoice.objects.get(
             id="f1f4c191-dadd-43a3-8cba-b021485c418c",
@@ -2217,7 +2404,7 @@ class QRCodeBulkImportViewSet(viewsets.GenericViewSet):
                 import_job,
                 max_rows=bulk_upload_limit,
             )
-            limit_response = _enforce_qr_limit(request.user, requested=len(data_rows))
+            limit_response = _enforce_qr_limit(account_owner, requested=len(data_rows))
             if limit_response is not None:
                 return limit_response
 
@@ -2303,6 +2490,26 @@ class CustomDomainViewSet(viewsets.ModelViewSet):
             user=self.request.user,
             is_deleted=False
         )
+        permission_values = [
+            permission.strip().lower()
+            for value in self.request.query_params.getlist("permission")
+            for permission in value.split(",")
+            if permission.strip()
+        ]
+        if permission_values:
+            valid_permissions = {"owner", "admin", "edit", "view"}
+            invalid_permissions = set(permission_values) - valid_permissions
+            if invalid_permissions:
+                raise ValidationError({
+                    "permission": (
+                        "Unsupported permission(s): "
+                        + ", ".join(sorted(invalid_permissions))
+                        + ". Allowed values: owner, admin, edit, view."
+                    )
+                })
+            if "owner" not in permission_values:
+                queryset = queryset.none()
+
         status_param = self.request.query_params.get("status")
         if status_param:
             valid_statuses = {choice[0] for choice in CustomDomain.Status.choices}

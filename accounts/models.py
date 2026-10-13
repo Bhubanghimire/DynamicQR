@@ -142,6 +142,7 @@ class ContactUs(models.Model):
     phone = models.CharField(max_length=50, blank=True)
     subject = models.CharField(max_length=255, blank=True)
     message = models.TextField()
+    replied = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

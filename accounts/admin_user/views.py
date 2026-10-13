@@ -1,10 +1,12 @@
 from django.db.models import Q
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
-from accounts.models import User, FAQ
-from accounts.serializers import UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer, FAQAdminSerializer
+from accounts.models import ContactUs, User, FAQ
+from accounts.serializers import ContactUsAdminSerializer, ContactUsReplySerializer, ContactUsReplyStatusSerializer, UserAdminSerializer, UserAdminDetailSerializer, UserAdminCreateSerializer, UserAdminUpdateSerializer, FAQAdminSerializer
 from accounts.views import AdminAutoSchema, admin_query_parameter
 
 class UserAdminSchema(AdminAutoSchema):
@@ -175,6 +177,7 @@ class FAQAdminViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -244,4 +247,115 @@ class FAQAdminViewSet(viewsets.ModelViewSet):
                 "message": "FAQ deleted successfully."
             },
             status=status.HTTP_200_OK
+        )
+
+
+class ContactUsAdminViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = ContactUs.objects.all().order_by("-created_at")
+    serializer_class = ContactUsAdminSerializer
+    permission_classes = [IsAdminUser]
+    schema = AdminAutoSchema()
+    swagger_query_parameters = {
+        "list": [
+            admin_query_parameter(
+                "search",
+                "Search contact requests by name, email, subject, or message.",
+                example="support@example.com",
+            ),
+            admin_query_parameter(
+                "status",
+                "Filter contact requests by reply status.",
+                enum=["replied", "unreplied"],
+                example="replied",
+            ),
+        ],
+    }
+
+    def get_serializer_class(self):
+        if self.action == "reply":
+            return ContactUsReplySerializer
+        if self.action == "reply_status":
+            return ContactUsReplyStatusSerializer
+        return super().get_serializer_class()
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(subject__icontains=search)
+                | Q(message__icontains=search)
+            )
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            status_value = status_param.strip().lower()
+            if status_value in {"replied", "unreplied"}:
+                queryset = queryset.filter(replied=status_value == "replied")
+
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(
+            {"data": serializer.data, "message": "Contact requests fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object())
+        return Response(
+            {"data": serializer.data, "message": "Contact request details fetched successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="reply")
+    def reply(self, request, *args, **kwargs):
+        contact = self.get_object()
+        serializer = ContactUsReplySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        subject = serializer.validated_data["subject"]
+        message = serializer.validated_data["message"]
+        email = EmailMultiAlternatives(
+            subject=subject,
+            body=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[contact.email],
+        )
+        email.send(fail_silently=False)
+
+        return Response(
+            {
+                "data": {
+                    "contact_id": contact.id,
+                    "email": contact.email,
+                },
+                "message": "Reply email sent successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["patch"], url_path="reply-status")
+    def reply_status(self, request, *args, **kwargs):
+        contact = self.get_object()
+        serializer = ContactUsReplyStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        contact.replied = serializer.validated_data["replied"]
+        contact.save(update_fields=["replied"])
+
+        return Response(
+            {
+                "data": ContactUsAdminSerializer(contact).data,
+                "message": "Contact request reply status updated successfully.",
+            },
+            status=status.HTTP_200_OK,
         )

@@ -10,7 +10,8 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import User
-from subscriptions.models import Duration, Invoice, Package, PackagePlan, Payment, Subscription
+from subscriptions.models import Currency, Duration, Invoice, Package, PackagePlan, Payment, Subscription
+from subscriptions.quota_service import get_qr_limit
 from subscriptions.services.esewa_service import _signature
 
 class PackageListDurationFilterTests(TestCase):
@@ -273,6 +274,39 @@ class RegisterFreeSubscriptionTests(TestCase):
         self.assertEqual(subscription.bulk_upload_limit, self.free_plan.max_bulk_upload)
         self.assertEqual(subscription.domain_add_limit, self.free_plan.max_domain_add)
         self.assertEqual(response.data["message"], "loggedIn successfully.")
+
+
+class QRQuotaUnlimitedPlanTests(TestCase):
+    def test_current_unlimited_plan_overrides_stale_subscription_snapshot(self):
+        user = User.objects.create_user(
+            email="unlimited@example.com",
+            password="password123",
+            full_name="Unlimited User",
+        )
+        package = Package.objects.create(
+            title="Unlimited",
+            description="Unlimited QR package",
+            is_free=True,
+            is_active=True,
+        )
+        plan = PackagePlan.objects.create(
+            package=package,
+            max_qrs=None,
+            max_scans=100,
+            is_active=True,
+        )
+        currency = Currency.objects.create(code="USD", name="US Dollar")
+        Subscription.objects.create(
+            user=user,
+            package_plan=plan,
+            price=0,
+            currency=currency,
+            qr_limit=0,
+            started_at="2026-01-01T00:00:00Z",
+            status=Subscription.Status.ACTIVE,
+        )
+
+        self.assertIsNone(get_qr_limit(user))
 
 
 

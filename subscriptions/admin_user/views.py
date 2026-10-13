@@ -55,7 +55,7 @@ class PackageViewSet(viewsets.ModelViewSet):
         "packageplan_set",
         "packageplan_set__duration",
         "packageplan_set__prices",
-    ).all()
+    ).all().order_by("display_order", "title", "id")
     serializer_class = AdminPackageSerializer
     permission_classes = [IsAdminUser]
     schema = AdminAutoSchema()

@@ -437,6 +437,8 @@ class SubscriptionUsageSerializer(serializers.Serializer):
     subscription_status = serializers.CharField()
     package = UsagePackageSerializer(allow_null=True)
     package_title = serializers.CharField(allow_null=True, allow_blank=True)
+    package_price = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    currency = serializers.CharField(allow_null=True, allow_blank=True)
     package_plan = InvoicePackagePlanSerializer(allow_null=True)
     qr_generated_count = serializers.IntegerField()
     qr_usage = UsageQuotaSerializer()

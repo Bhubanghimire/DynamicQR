@@ -4,6 +4,7 @@ from django.db.models import Sum
 from django.db.models.functions import Coalesce
 
 from analytics.models import QRAnalytics
+from Qr.services.account_ownership import qrs_billed_to
 from subscriptions.models import Subscription
 
 
@@ -24,7 +25,6 @@ def get_package_scan_quota(user):
             limit = subscription.package_plan.max_scans
 
     used = QRAnalytics.objects.filter(
-        qr__created_by=user,
-        qr__is_deleted=False,
+        qr__in=qrs_billed_to(user),
     ).aggregate(total=Coalesce(Sum("total_scans"), 0))["total"]
     return limit, used

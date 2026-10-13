@@ -3,9 +3,15 @@ from django.db import transaction
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from subscriptions.models import Subscription
+from subscriptions.quota_service import (
+    QRLimitExceeded,
+    check_qr_capacity,
+    get_bulk_upload_limit,
+    lock_account_owner,
+)
 
-from .models import QRCode, QRImportJob
+from .models import QRImportJob
+from .services.account_ownership import account_owner_for_project
 
 def get_importer(qr_type):
     qr_type_name = qr_type.id
@@ -45,30 +51,6 @@ def get_importer(qr_type):
     raise ValueError(
         f"Bulk import is not supported for QR type: {qr_type.name}"
     )
-
-
-def get_bulk_upload_limit(user):
-    subscription = Subscription.get_usage_subscription_for_user(user)
-    if not subscription:
-        return 0
-
-    if subscription.bulk_upload_limit is not None:
-        return subscription.bulk_upload_limit
-
-    package_plan = getattr(subscription, "package_plan", None)
-    return package_plan.max_bulk_upload if package_plan else 0
-
-
-def get_qr_limit(user):
-    subscription = Subscription.get_usage_subscription_for_user(user)
-    if not subscription:
-        return 0
-
-    if subscription.qr_limit is not None:
-        return subscription.qr_limit
-
-    package_plan = getattr(subscription, "package_plan", None)
-    return package_plan.max_qrs if package_plan else 0
 
 
 def load_import_workbook_rows(import_job, max_rows=None):
@@ -123,23 +105,22 @@ def process_qr_import(import_job_id):
             update_fields=["started_at", "updated_at"]
         )
 
-        bulk_upload_limit = get_bulk_upload_limit(import_job.user)
+        account_owner = account_owner_for_project(import_job.project, import_job.user)
+        bulk_upload_limit = get_bulk_upload_limit(account_owner)
         headers, data_rows = load_import_workbook_rows(
             import_job,
             max_rows=bulk_upload_limit,
         )
 
-        qr_limit = get_qr_limit(import_job.user)
-        if qr_limit is not None:
-            existing_qr_count = QRCode.objects.filter(
-                created_by=import_job.user,
-                is_deleted=False,
-            ).count()
-            if existing_qr_count + len(data_rows) > qr_limit:
-                raise ValueError(
-                    f"QR code limit reached for your package. "
-                    f"Remaining QR slots: {max(qr_limit - existing_qr_count, 0)}."
-                )
+        try:
+            with transaction.atomic():
+                locked_owner = lock_account_owner(account_owner)
+                check_qr_capacity(locked_owner, requested=len(data_rows))
+        except QRLimitExceeded as exc:
+            raise ValueError(
+                "QR code limit reached for your package. "
+                f"Remaining QR slots: {max(exc.limit - exc.used, 0)}."
+            ) from exc
 
         import_job.total_rows = len(data_rows)
         import_job.save(
@@ -179,6 +160,8 @@ def process_qr_import(import_job_id):
                 print(f"🔥 Processing row {index}: {row}")
 
                 with transaction.atomic():
+                    locked_owner = lock_account_owner(account_owner)
+                    check_qr_capacity(locked_owner)
                     importer.process_row(
                         row=row,
                         job=import_job,

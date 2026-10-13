@@ -184,6 +184,22 @@ class ContactUsSubmitSerializer(serializers.ModelSerializer):
         model = ContactUs
         fields = ['full_name', 'email', 'phone', 'subject', 'message']
 
+
+class ContactUsAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactUs
+        fields = ['id', 'full_name', 'email', 'phone', 'subject', 'message', 'replied', 'created_at']
+        read_only_fields = fields
+
+
+class ContactUsReplySerializer(serializers.Serializer):
+    subject = serializers.CharField(max_length=255)
+    message = serializers.CharField()
+
+
+class ContactUsReplyStatusSerializer(serializers.Serializer):
+    replied = serializers.BooleanField()
+
 class FAQListSerializer(serializers.ModelSerializer):
     class Meta:
         model = FAQ
