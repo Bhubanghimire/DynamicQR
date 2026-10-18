@@ -32,6 +32,7 @@ from subscriptions.serializers import (
 from subscriptions.services.esewa_service import EsewaError, form_for_invoice
 from subscriptions.views import reconcile_esewa_invoice
 from subscriptions.normal_user.pricing import select_plan_price
+from subscriptions.quota_service import get_qr_limit
 
 
 class ProjectSchema(PaginatedAutoSchema):
@@ -350,7 +351,9 @@ class UsageViewSet(viewsets.GenericViewSet):
             if subscription and subscription.package_plan
             else None
         )
-        qr_limit = None
+        # Keep the displayed limit identical to the resolver used by QR
+        # creation, including the max_qrs=NULL unlimited-plan rule.
+        qr_limit = get_qr_limit(user)
         scan_limit = None
         team_member_limit = None
         bulk_upload_limit = None
@@ -358,7 +361,6 @@ class UsageViewSet(viewsets.GenericViewSet):
         features = {}
 
         if subscription and subscription.package_plan:
-            qr_limit = subscription.qr_limit if subscription.qr_limit is not None else subscription.package_plan.max_qrs
             scan_limit = subscription.scan_limit if subscription.scan_limit is not None else subscription.package_plan.max_scans
             team_member_limit = subscription.team_member_limit
             bulk_upload_limit = subscription.bulk_upload_limit
