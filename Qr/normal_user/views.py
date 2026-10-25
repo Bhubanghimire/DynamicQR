@@ -600,7 +600,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 qr = (
-                    QRCode.objects.select_for_update()
+                    QRCode.objects.select_for_update(of=("self",))
                     .select_related("project__owner", "created_by")
                     .get(id=qr_id)
                 )
@@ -644,7 +644,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 qr = (
-                    QRCode.objects.select_for_update()
+                    QRCode.objects.select_for_update(of=("self",))
                     .select_related("project__owner", "created_by")
                     .get(id=qr_id, project=project)
                 )
@@ -937,7 +937,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 locked_instance = (
-                    QRCode.objects.select_for_update()
+                    QRCode.objects.select_for_update(of=("self",))
                     .select_related("project__owner", "created_by")
                     .get(pk=instance.pk)
                 )
@@ -1135,7 +1135,7 @@ class QRCodeViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 source_qr = (
-                    QRCode.objects.select_for_update()
+                    QRCode.objects.select_for_update(of=("self",))
                     .select_related("project__owner", "created_by")
                     .get(pk=source_qr.pk)
                 )
@@ -1298,7 +1298,7 @@ class QRRecycleBinViewSet(viewsets.GenericViewSet):
             with transaction.atomic():
                 locked_qr_codes = list(
                     QRCode.objects.get_deleted()
-                    .select_for_update()
+                    .select_for_update(of=("self",))
                     .select_related("project__owner", "created_by")
                     .filter(id__in=qr_ids)
                 )
