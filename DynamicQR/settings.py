@@ -179,6 +179,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://www.qrpac.com",
     "https://qrnepal.vercel.app",
     "http://qrnepal.vercel.app",
+    "https://qrpac-ai.vercel.app",
     "https://less-approach-farming-cultures.trycloudflare.com"
 ]
 
