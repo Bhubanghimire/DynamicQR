@@ -158,7 +158,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.qrpac.com",
     "https://less-approach-farming-cultures.trycloudflare.com",
     "https://dev-qrnepal.vercel.app",
-    "https://qrpac.vercel.app"
+    "https://qrpac.vercel.app",
+    "https://qrpac-ai.vercel.app",
 
 ]
 
