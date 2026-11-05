@@ -42,6 +42,16 @@ def sync_package_plan_with_dodo(sender, instance, created, **kwargs):
         )
         return
 
+    # Free plans are never billed: there is no Dodo product to represent.
+    # They may also have no Duration row at all, which no Dodo product
+    # can express.
+    if instance.package_id and instance.package.is_free:
+        logger.info(
+            "Skipping Dodo sync for free PackagePlan %s",
+            instance.pk,
+        )
+        return
+
     def sync():
         try:
             DodoProductService().sync_plan(instance)
@@ -59,6 +69,15 @@ def sync_package_plan_with_dodo(sender, instance, created, **kwargs):
 def sync_package_plan_price_with_dodo(sender, instance, created, **kwargs):
     """Create/update the Dodo product belonging to one currency price."""
     if not instance.is_active or not instance.package_plan.is_active:
+        return
+
+    # Prices of a free plan are never charged through Dodo.
+    plan = instance.package_plan
+    if plan.package_id and plan.package.is_free:
+        logger.info(
+            "Skipping Dodo price sync for free PackagePlanPrice %s",
+            instance.pk,
+        )
         return
 
     def sync():

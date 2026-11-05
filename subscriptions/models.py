@@ -60,7 +60,10 @@ class Package(SoftDeletable):
         constraints = [
             models.UniqueConstraint(
                 fields=["is_free"],
-                condition=models.Q(is_free=True),
+                condition=models.Q(
+                    is_free=True,
+                    is_deleted=False,
+                ),
                 name="only_one_free_package",
             )
         ]
@@ -427,7 +430,11 @@ class Subscription(SoftDeletable):
         This handles both new subscriptions and renewals
         """
         duration = invoice.package_plan.duration
-        duration_days = duration.days or 0
+        # Duration is optional on the plan (free plans have none); a missing
+        # Duration row must not crash invoicing. A zero-length term still
+        # expires immediately, surfacing the misconfiguration rather than
+        # silently granting lifetime access.
+        duration_days = duration.days if duration and duration.days else 0
         now = timezone.now()
         auto_renew_enabled = cls._invoice_auto_renew_enabled(invoice)
         subscription = getattr(invoice, "subscription", None)

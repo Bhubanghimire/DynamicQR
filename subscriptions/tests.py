@@ -7,12 +7,24 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from accounts.models import User
-from subscriptions.models import Currency, Duration, Invoice, Package, PackagePlan, Payment, Subscription
+from subscriptions.models import (
+    Currency,
+    Duration,
+    Invoice,
+    Package,
+    PackagePlan,
+    PackagePlanPrice,
+    Payment,
+    PaymentProvider,
+    Subscription,
+)
 from subscriptions.quota_service import get_qr_limit
 from subscriptions.services.esewa_service import _signature
+from system.models import ConfigCategory, ConfigChoice
 
 class PackageListDurationFilterTests(TestCase):
     def setUp(self):
@@ -34,18 +46,30 @@ class PackageListDurationFilterTests(TestCase):
             display_order=2,
         )
 
-        PackagePlan.objects.create(
+        self.usd = Currency.objects.create(code="USD", name="US Dollar", is_active=True)
+
+        self.monthly_plan = PackagePlan.objects.create(
             package=self.monthly_package,
             duration=self.monthly,
-            price=10,
-            currency="USD",
             is_active=True,
         )
-        PackagePlan.objects.create(
+        PackagePlanPrice.objects.create(
+            package_plan=self.monthly_plan,
+            currency=self.usd,
+            price=Decimal("10.00"),
+            is_default=True,
+            is_active=True,
+        )
+        self.yearly_plan = PackagePlan.objects.create(
             package=self.yearly_package,
             duration=self.yearly,
-            price=100,
-            currency="USD",
+            is_active=True,
+        )
+        PackagePlanPrice.objects.create(
+            package_plan=self.yearly_plan,
+            currency=self.usd,
+            price=Decimal("100.00"),
+            is_default=True,
             is_active=True,
         )
 
@@ -81,11 +105,7 @@ class PackageListDurationFilterTests(TestCase):
             password="password123",
             is_staff=True,
         )
-        plan = PackagePlan.objects.create(
-            package=self.monthly_package,
-            duration=self.monthly,
-            max_scans=100,
-        )
+        plan = self.monthly_plan
         self.client.force_authenticate(user=admin)
 
         response = self.client.patch(
@@ -187,16 +207,22 @@ class SubscriptionUsageFallbackTests(TestCase):
             is_active=True,
             display_order=0,
         )
+        self.usd = Currency.objects.create(code="USD", name="US Dollar", is_active=True)
         self.free_plan = PackagePlan.objects.create(
             package=self.free_package,
             duration=None,
-            price=0,
-            currency="USD",
             max_qrs=5,
             max_scans=25,
             max_team_members=0,
             max_bulk_upload=10,
             max_domain_add=2,
+            is_active=True,
+        )
+        PackagePlanPrice.objects.create(
+            package_plan=self.free_plan,
+            currency=self.usd,
+            price=Decimal("0.00"),
+            is_default=True,
             is_active=True,
         )
 
@@ -238,17 +264,32 @@ class RegisterFreeSubscriptionTests(TestCase):
             is_active=True,
             display_order=0,
         )
+        self.usd = Currency.objects.create(code="USD", name="US Dollar", is_active=True)
         self.free_plan = PackagePlan.objects.create(
             package=self.free_package,
             duration=None,
-            price=0,
-            currency="USD",
             max_qrs=10,
             max_scans=50,
             max_team_members=0,
             max_bulk_upload=10,
             max_domain_add=1,
             is_active=True,
+        )
+        PackagePlanPrice.objects.create(
+            package_plan=self.free_plan,
+            currency=self.usd,
+            price=Decimal("0.00"),
+            is_default=True,
+            is_active=True,
+        )
+        # Registration hardcodes this user-type choice UUID
+        # (accounts/serializers.py and accounts/views.py); the test database
+        # must contain the referenced row.
+        category = ConfigCategory.objects.create(name="User Types")
+        ConfigChoice.objects.create(
+            id="004dbed1-bb73-496a-b5f2-a244b42de122",
+            category=category,
+            name="Teacher",
         )
 
     def test_register_assigns_default_free_subscription(self):
@@ -326,13 +367,32 @@ class EsewaCheckoutTests(TestCase):
         )
         duration = Duration.objects.create(name='Monthly', days=30)
         package = Package.objects.create(title='Pro', description='Pro package')
-        self.plan = PackagePlan.objects.create(package=package, duration=duration, price=Decimal('100.00'), currency='NPR')
+        self.plan = PackagePlan.objects.create(package=package, duration=duration)
+        self.npr = Currency.objects.create(code='NPR', name='Nepalese Rupee', is_active=True)
+        self.price = PackagePlanPrice.objects.create(
+            package_plan=self.plan,
+            currency=self.npr,
+            price=Decimal('100.00'),
+            is_default=True,
+            is_active=True,
+        )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
         self.base = '/api/v1.1/user/subscriptions/payments/'
+        # The eSewa reconciliation records the payment against this provider row.
+        PaymentProvider.objects.get_or_create(
+            code="esewa",
+            defaults={
+                "name": "eSewa",
+                "logo": SimpleUploadedFile("esewa.png", b"\x89PNG\r\n\x1a\n"),
+                "is_active": True,
+            },
+        )
 
-    def initiate(self):
-        return self.client.post(self.base + 'esewa/initiate/', {'package_plan_id': str(self.plan.id)}, format='json')
+    def initiate(self, data=None):
+        payload = {'package_plan_id': str(self.plan.id), 'package_plan_price_id': str(self.price.id)}
+        payload.update(data or {})
+        return self.client.post(self.base + 'esewa/initiate/', payload, format='json')
 
     def test_checkout_uses_saved_price_and_signed_form(self):
         response = self.initiate()
@@ -346,18 +406,22 @@ class EsewaCheckoutTests(TestCase):
         self.assertEqual(invoice.metadata['esewa_transaction_uuid'], fields['transaction_uuid'])
         self.assertFalse(Payment.objects.filter(invoice=invoice).exists())
 
-    def test_rejects_non_npr_plan_and_auto_renew(self):
-        self.plan.currency = 'USD'
-        self.plan.save()
-        self.assertEqual(self.initiate().status_code, 400)
-        self.plan.currency = 'NPR'
-        self.plan.save()
-        self.assertEqual(self.client.post(
-            self.base + 'esewa/initiate/',
-            {'package_plan_id': str(self.plan.id), 'auto_renew': True}, format='json'
-        ).status_code, 400)
+    def test_rejects_non_npr_price_and_auto_renew(self):
+        usd = Currency.objects.create(code='USD', name='US Dollar', is_active=True)
+        usd_price = PackagePlanPrice.objects.create(
+            package_plan=self.plan,
+            currency=usd,
+            price=Decimal('1.00'),
+            is_active=True,
+        )
+        self.assertEqual(
+            self.initiate({'package_plan_price_id': str(usd_price.id)}).status_code, 400
+        )
+        self.assertEqual(
+            self.initiate({'auto_renew': True}).status_code, 400
+        )
 
-    @patch('subscriptions.esewa_views.verify_status')
+    @patch('subscriptions.views.verify_status')
     def test_signed_return_creates_existing_payment_and_paid_invoice_once(self, verify_status):
         response = self.initiate()
         invoice_number = response.data['invoice_number']
@@ -380,7 +444,7 @@ class EsewaCheckoutTests(TestCase):
         self.assertFalse(invoice.subscription.auto_renew)
         self.assertEqual(invoice.subscription.billing_duration_days, 30)
         payment = Payment.objects.get(invoice=invoice)
-        self.assertEqual(payment.provider, Payment.Provider.ESEWA)
+        self.assertEqual(payment.provider.code, "esewa")
         self.assertEqual(payment.subscription_id, invoice.subscription_id)
         self.assertEqual(payment.amount, invoice.total)
         self.assertEqual(payment.metadata['esewa_transaction_code'], 'ABC123')
@@ -392,7 +456,7 @@ class EsewaCheckoutTests(TestCase):
         self.assertEqual(paid_list.status_code, 200)
         self.assertEqual(paid_list.data['total'], 1)
 
-    @patch('subscriptions.esewa_views.verify_status')
+    @patch('subscriptions.views.verify_status')
     def test_tampered_return_never_fulfills_and_status_is_owner_only(self, verify_status):
         response = self.initiate()
         invoice_number = response.data['invoice_number']
