@@ -60,7 +60,10 @@ class Package(SoftDeletable):
         constraints = [
             models.UniqueConstraint(
                 fields=["is_free"],
-                condition=models.Q(is_free=True),
+                condition=models.Q(
+                    is_free=True,
+                    is_deleted=False,
+                ),
                 name="only_one_free_package",
             )
         ]
