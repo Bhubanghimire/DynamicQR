@@ -136,6 +136,10 @@ class AdminPackagePlanSerializer(serializers.ModelSerializer):
         queryset=Duration.objects.all(),
         source="duration",
         write_only=True,
+        # Free plans have no billing term; the subscription engine treats
+        # them as non-expiring regardless of the Duration row.
+        allow_null=True,
+        required=False,
     )
     prices = AdminPackagePlanPriceSerializer(many=True, required=False)
 
@@ -212,6 +216,40 @@ class AdminPackageSerializer(serializers.ModelSerializer):
                 if not field.read_only:
                     field.required = False
             self.fields["plans"].child.partial = True
+
+    def validate(self, attrs):
+        """Only free packages may carry plans without a duration.
+
+        A paid plan without a duration would create subscriptions that are
+        born expired (`expires_at == started_at`), so null/missing durations
+        are rejected whenever the package is not the free one.
+        """
+        plans = attrs.get("packageplan_set")
+        if plans is not None:
+            is_free = attrs.get("is_free")
+            if is_free is None and self.instance is not None:
+                is_free = self.instance.is_free
+            if not is_free:
+                for plan_data in plans:
+                    new_plan = not plan_data.get("id")
+                    duration_submitted_as_null = (
+                        "duration" in plan_data and plan_data["duration"] is None
+                    )
+                    # A new plan must carry a duration; an existing plan may
+                    # omit the key (leave unchanged) but may not null it.
+                    if duration_submitted_as_null or (new_plan and "duration" not in plan_data):
+                        plan_label = f"Plan {plan_data['id']} " if plan_data.get("id") else "New plan "
+                        raise serializers.ValidationError({
+                            "plans": f"{plan_label}requires a duration because the package is not free."
+                        })
+            elif self.instance is not None and not attrs.get("is_free", True):
+                # Turning a free package into a paid one: existing duration-less
+                # plans would become born-expired paid plans.
+                if self.instance.packageplan_set.filter(duration__isnull=True).exists():
+                    raise serializers.ValidationError({
+                        "plans": "Set a duration on every plan before removing the free flag."
+                    })
+        return attrs
 
     def create(self, validated_data):
         plans_data = validated_data.pop("packageplan_set", [])
