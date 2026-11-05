@@ -861,4 +861,4 @@ class PaymentProviderAdmin(admin.ModelAdmin):
 
 @admin.register(PackagePlanPrice)
 class PaymentPriceAdmin(admin.ModelAdmin):
-    list_display = ["id"]
+    list_display = ["id", "package_plan","price", "dodo_product_id", "created_at", "updated_at"]
